@@ -1,6 +1,7 @@
 // 給他排下去 — 主程式
 import { db } from './db.js';
 import { sync } from './sync.js';
+import { HOLIDAYS } from './holidays.js';
 
 const $ = id => document.getElementById(id);
 const HOUR_H = 48; // 時間軸每小時高度(px)
@@ -94,6 +95,7 @@ async function init() {
   render();
   registerSW();
   startReminderLoop();
+  startClock();
   sync.init({
     onRemoteChange: async () => {
       calendars = await db.getAll('calendars');
@@ -137,23 +139,32 @@ function renderMonth() {
     const d = addDays(gridStart, i);
     const dayOccs = occs.filter(o => o.start <= endOfDay(d) && o.end >= startOfDay(d));
     const isOther = d.getMonth() !== cursor.getMonth();
+    const holiday = HOLIDAYS[fmtYMD(d)];
     const cls = ['mcell'];
     if (isOther) cls.push('other');
     if (sameDay(d, today)) cls.push('today');
     if (sameDay(d, selectedDay)) cls.push('selected');
     if (d.getDay() === 0) cls.push('sun');
     if (d.getDay() === 6) cls.push('sat');
-    const maxChips = 3;
+    if (holiday) cls.push('hol');
+    const holHtml = holiday ? `<div class="mcell-holname">${holiday}</div>` : '';
+    const maxChips = holiday ? 2 : 3;
     let chips = dayOccs.slice(0, maxChips).map(o =>
       `<div class="chip" style="background:${calById(o.ev.calendarId).color}">${esc(o.ev.title)}</div>`).join('');
     if (dayOccs.length > maxChips) chips += `<div class="chip more">+${dayOccs.length - maxChips}</div>`;
-    cells.push(`<div class="${cls.join(' ')}" data-date="${fmtYMD(d)}"><div class="mcell-num">${d.getDate()}</div>${chips}</div>`);
+    cells.push(`<div class="${cls.join(' ')}" data-date="${fmtYMD(d)}"><div class="mcell-num">${d.getDate()}</div>${holHtml}${chips}</div>`);
   }
   $('monthGrid').innerHTML = cells.join('');
   $('monthGrid').querySelectorAll('.mcell').forEach(c => {
     c.onclick = () => {
       const [y, m, dd] = c.dataset.date.split('-').map(Number);
-      selectedDay = new Date(y, m - 1, dd);
+      const clicked = new Date(y, m - 1, dd);
+      if (sameDay(clicked, selectedDay)) {
+        // 再點一次已選取的日期 → 直接新增當天行程
+        openEventForm(null, { date: clicked });
+        return;
+      }
+      selectedDay = clicked;
       if (selectedDay.getMonth() !== cursor.getMonth()) cursor = new Date(selectedDay);
       renderMonth();
     };
@@ -187,6 +198,53 @@ function renderDayPanel() {
   });
 }
 
+// ── 重疊行程並排:回傳每筆的 {col, total}(同時段的行程分欄顯示) ──
+function layoutTimed(items) {
+  // items: [{s, e, ...}] 依開始時間排序後,重疊的分到不同欄
+  items.sort((a, b) => a.s - b.s || b.e - a.e);
+  const colEnds = [];   // 每欄目前的結束時間
+  let cluster = [];     // 目前重疊群
+  let clusterEnd = -Infinity;
+  const finalize = () => {
+    for (const it of cluster) it.total = colEnds.length;
+    cluster = [];
+    colEnds.length = 0;
+  };
+  for (const it of items) {
+    if (cluster.length && it.s >= clusterEnd) finalize();
+    let col = colEnds.findIndex(end => end <= it.s);
+    if (col === -1) { col = colEnds.length; colEnds.push(0); }
+    colEnds[col] = it.e;
+    it.col = col;
+    cluster.push(it);
+    clusterEnd = Math.max(clusterEnd, it.e);
+  }
+  finalize();
+  return items;
+}
+
+// 產生一天的時間軸行程 HTML(含並排)
+function timedEventsHtml(occs, d) {
+  const items = occs.map(o => {
+    const s = o.start < startOfDay(d) ? startOfDay(d) : o.start;
+    const e = o.end > endOfDay(d) ? endOfDay(d) : o.end;
+    return { o, s: s.getTime(), e: Math.max(e.getTime(), s.getTime() + 20 * 60000) };
+  });
+  layoutTimed(items);
+  let html = '';
+  for (const it of items) {
+    const s = new Date(it.s);
+    const top = (s.getHours() + s.getMinutes() / 60) * HOUR_H;
+    const height = Math.max(20, ((it.e - it.s) / 3600000) * HOUR_H - 2);
+    const w = 100 / it.total;
+    const timeLabel = sameDay(it.o.start, it.o.end)
+      ? `${fmtHM(it.o.start)}${it.total > 2 ? '' : ' - ' + fmtHM(it.o.end)}`
+      : fmtHM(it.o.start);
+    html += `<div class="tl-event" data-id="${it.o.ev.id}" style="top:${top}px;height:${height}px;left:calc(${it.col * w}% + 2px);width:calc(${w}% - 5px);background:${calById(it.o.ev.calendarId).color}"><b>${esc(it.o.ev.title)}</b>${timeLabel}</div>`;
+  }
+  return html;
+}
+
 // ── 週檢視(垂直時間軸) ──
 function renderWeek() {
   const weekStart = startOfWeek(cursor);
@@ -213,14 +271,7 @@ function renderWeek() {
     for (let h = 1; h < 24; h++) lines += `<div class="hour-line" style="top:${h * HOUR_H}px"></div>`;
 
     const dayOccs = occs.filter(o => !o.ev.allDay && o.start <= endOfDay(d) && o.end >= startOfDay(d));
-    let evHtml = '';
-    for (const o of dayOccs) {
-      const s = o.start < startOfDay(d) ? startOfDay(d) : o.start;
-      const e = o.end > endOfDay(d) ? endOfDay(d) : o.end;
-      const top = (s.getHours() + s.getMinutes() / 60) * HOUR_H;
-      const height = Math.max(20, ((e - s) / 3600000) * HOUR_H - 2);
-      evHtml += `<div class="tl-event" data-id="${o.ev.id}" style="top:${top}px;height:${height}px;background:${calById(o.ev.calendarId).color}"><b>${esc(o.ev.title)}</b>${fmtHM(o.start)}</div>`;
-    }
+    const evHtml = timedEventsHtml(dayOccs, d);
 
     let nowLine = '';
     if (isToday) {
@@ -230,7 +281,7 @@ function renderWeek() {
 
     cols += `<div class="wcol ${isToday ? 'today-col' : ''}">
       <div class="wcol-head ${isToday ? 'today' : ''}" data-date="${fmtYMD(d)}">${WEEKDAYS[d.getDay()]}<b>${d.getDate()}</b></div>
-      <div style="position:relative;height:${24 * HOUR_H}px">${lines}${evHtml}${nowLine}</div>
+      <div class="tl-body" data-date="${fmtYMD(d)}" style="position:relative;height:${24 * HOUR_H}px">${lines}${evHtml}${nowLine}</div>
     </div>`;
   }
   $('weekGrid').innerHTML = gutter + cols;
@@ -249,6 +300,7 @@ function renderWeek() {
       setView('day');
     };
   });
+  bindEmptySlotTap($('weekGrid'));
 
   // 捲到早上 7 點,並水平捲到目前檢視的日子
   requestAnimationFrame(() => {
@@ -279,14 +331,7 @@ function renderDay() {
     lines += `<div class="hour-line" style="top:${h * HOUR_H}px"></div><span class="time-label" style="top:${h * HOUR_H}px;left:2px;right:auto">${h}:00</span>`;
   }
 
-  let evHtml = '';
-  for (const o of occs.filter(o => !o.ev.allDay)) {
-    const s = o.start < startOfDay(d) ? startOfDay(d) : o.start;
-    const e = o.end > endOfDay(d) ? endOfDay(d) : o.end;
-    const top = (s.getHours() + s.getMinutes() / 60) * HOUR_H;
-    const height = Math.max(24, ((e - s) / 3600000) * HOUR_H - 2);
-    evHtml += `<div class="tl-event" data-id="${o.ev.id}" style="top:${top}px;height:${height}px;left:52px;background:${calById(o.ev.calendarId).color}"><b>${esc(o.ev.title)}</b>${fmtHM(o.start)} - ${fmtHM(o.end)}</div>`;
-  }
+  const evHtml = timedEventsHtml(occs.filter(o => !o.ev.allDay), d);
 
   let nowLine = '';
   if (sameDay(d, today)) {
@@ -294,10 +339,25 @@ function renderDay() {
     nowLine = `<div class="now-line" style="top:${top}px;left:44px"></div>`;
   }
 
-  $('dayGrid').innerHTML = `<div style="position:relative;height:${24 * HOUR_H}px;margin-right:8px">${lines}${evHtml}${nowLine}</div>`;
+  $('dayGrid').innerHTML = `<div style="position:relative;height:${24 * HOUR_H}px;margin-right:8px">${lines}
+    <div class="tl-body" data-date="${fmtYMD(d)}" style="position:absolute;left:52px;right:0;top:0;height:100%">${evHtml}</div>${nowLine}</div>`;
   $('dayGrid').querySelectorAll('.tl-event').forEach(el => { el.onclick = () => showDetail(el.dataset.id); });
   $('dayAllday').querySelectorAll('.allday-chip').forEach(el => { el.onclick = () => showDetail(el.dataset.id); });
+  bindEmptySlotTap($('dayGrid'));
   requestAnimationFrame(() => { $('dayScroll').scrollTop = 7 * HOUR_H; });
+}
+
+// 點時間軸空白處 → 新增該時段行程
+function bindEmptySlotTap(root) {
+  root.querySelectorAll('.tl-body').forEach(body => {
+    body.onclick = (e) => {
+      if (e.target !== body && !e.target.classList.contains('hour-line')) return;
+      const rect = body.getBoundingClientRect();
+      const hour = Math.min(23, Math.max(0, Math.floor((e.clientY - rect.top) / HOUR_H)));
+      const [y, m, dd] = body.dataset.date.split('-').map(Number);
+      openEventForm(null, { date: new Date(y, m - 1, dd), hour });
+    };
+  });
 }
 
 // ── 檢視切換 ──
@@ -355,7 +415,7 @@ async function showDetail(id) {
 }
 
 // ── 行程表單 ──
-async function openEventForm(ev = null) {
+async function openEventForm(ev = null, preset = null) {
   editingEvent = ev;
   editingPhotos = [];
   $('eventSheetTitle').textContent = ev ? '編輯行程' : '新增行程';
@@ -380,9 +440,9 @@ async function openEventForm(ev = null) {
   let s, e;
   if (ev) { s = new Date(ev.start); e = new Date(ev.end); }
   else {
-    s = new Date(selectedDay);
-    const now = new Date();
-    s.setHours(now.getHours() + 1, 0, 0, 0);
+    s = new Date((preset && preset.date) || selectedDay);
+    if (preset && preset.hour !== undefined) s.setHours(preset.hour, 0, 0, 0);
+    else { const now = new Date(); s.setHours(now.getHours() + 1, 0, 0, 0); }
     e = new Date(s.getTime() + 3600000);
   }
   $('evStartDate').value = fmtYMD(s);
@@ -601,6 +661,16 @@ async function deleteCal() {
   $('calSheetBackdrop').classList.remove('open');
   renderSettings();
   render();
+}
+
+// ── 時鐘:每分鐘更新「現在時間」紅線;切回 App 時重新整理 ──
+function startClock() {
+  setInterval(() => {
+    const now = new Date();
+    const top = (now.getHours() + now.getMinutes() / 60) * HOUR_H;
+    document.querySelectorAll('.now-line').forEach(el => { el.style.top = top + 'px'; });
+  }, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 }
 
 // ── 提醒(App 開啟時的本地通知) ──

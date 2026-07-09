@@ -103,6 +103,12 @@ body {
   color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;
 }
 .chip.more { background: none !important; color: var(--text2); text-align: center; padding: 0; }
+.mcell.hol .mcell-num { color: #e5484d; }
+.mcell.today.hol .mcell-num { color: #fff; }
+.mcell-holname {
+  font-size: 8.5px; color: #e5484d; text-align: center; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;
+}
 
 .day-events-panel {
   flex: 1; min-height: 90px; background: var(--bg);

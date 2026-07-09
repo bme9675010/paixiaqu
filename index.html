@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>給他排下去</title>
+<meta name="description" content="家庭共享行事曆 - 給他排下去">
+<meta name="theme-color" content="#4A7CFA">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="排下去">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- 頂部列 -->
+  <header class="topbar">
+    <button class="icon-btn" id="btnToday" title="回到今天">今天</button>
+    <div class="topbar-title" id="topbarTitle">
+      <button class="nav-arrow" id="btnPrev">‹</button>
+      <span id="titleText">2026年7月</span>
+      <button class="nav-arrow" id="btnNext">›</button>
+    </div>
+    <button class="icon-btn" id="btnSettings" title="設定">⚙️</button>
+  </header>
+
+  <!-- 檢視切換 -->
+  <nav class="view-tabs">
+    <button class="view-tab active" data-view="month">月</button>
+    <button class="view-tab" data-view="week">週</button>
+    <button class="view-tab" data-view="day">日</button>
+  </nav>
+
+  <!-- 月檢視 -->
+  <section id="viewMonth" class="view active">
+    <div class="weekday-row" id="weekdayRow"></div>
+    <div class="month-grid" id="monthGrid"></div>
+    <div class="day-events-panel" id="dayEventsPanel">
+      <div class="day-events-header" id="dayEventsHeader"></div>
+      <div class="day-events-list" id="dayEventsList"></div>
+    </div>
+  </section>
+
+  <!-- 週檢視(垂直時間軸) -->
+  <section id="viewWeek" class="view">
+    <div class="week-allday" id="weekAllday"></div>
+    <div class="week-scroll" id="weekScroll">
+      <div class="week-grid" id="weekGrid"></div>
+    </div>
+  </section>
+
+  <!-- 日檢視 -->
+  <section id="viewDay" class="view">
+    <div class="day-allday" id="dayAllday"></div>
+    <div class="day-scroll" id="dayScroll">
+      <div class="day-grid" id="dayGrid"></div>
+    </div>
+  </section>
+
+  <!-- 新增按鈕 -->
+  <button class="fab" id="btnAdd">＋</button>
+
+  <!-- 行程編輯表單 -->
+  <div class="sheet-backdrop" id="eventSheetBackdrop">
+    <div class="sheet" id="eventSheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <button class="text-btn" id="btnEventCancel">取消</button>
+        <span class="sheet-title" id="eventSheetTitle">新增行程</span>
+        <button class="text-btn primary" id="btnEventSave">儲存</button>
+      </div>
+      <div class="sheet-body">
+        <input type="text" id="evTitle" class="input-title" placeholder="輸入標題" autocomplete="off">
+
+        <div class="form-row" id="calPickerRow">
+          <span class="form-label">行事曆</span>
+          <div class="cal-picker" id="calPicker"></div>
+        </div>
+
+        <div class="form-row toggle-row">
+          <span class="form-label">全天</span>
+          <label class="switch"><input type="checkbox" id="evAllDay"><span class="slider"></span></label>
+        </div>
+
+        <div class="form-row">
+          <span class="form-label">開始</span>
+          <div class="dt-inputs">
+            <input type="date" id="evStartDate">
+            <input type="time" id="evStartTime">
+          </div>
+        </div>
+        <div class="form-row">
+          <span class="form-label">結束</span>
+          <div class="dt-inputs">
+            <input type="date" id="evEndDate">
+            <input type="time" id="evEndTime">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <span class="form-label">重複</span>
+          <select id="evRepeat">
+            <option value="none">不重複</option>
+            <option value="daily">每天</option>
+            <option value="weekly">每週</option>
+            <option value="monthly">每月</option>
+            <option value="yearly">每年</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <span class="form-label">提醒</span>
+          <select id="evReminder">
+            <option value="">不提醒</option>
+            <option value="0">準時</option>
+            <option value="5">5 分鐘前</option>
+            <option value="10">10 分鐘前</option>
+            <option value="30">30 分鐘前</option>
+            <option value="60">1 小時前</option>
+            <option value="1440">1 天前</option>
+          </select>
+        </div>
+
+        <div class="form-row form-col">
+          <span class="form-label">照片</span>
+          <div class="photo-strip" id="photoStrip">
+            <label class="photo-add">＋<input type="file" id="evPhotoInput" accept="image/*" multiple hidden></label>
+          </div>
+        </div>
+
+        <div class="form-row form-col">
+          <span class="form-label">備註</span>
+          <textarea id="evNotes" rows="3" placeholder="備註..."></textarea>
+        </div>
+
+        <button class="danger-btn" id="btnEventDelete" hidden>刪除行程</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 行程詳情 -->
+  <div class="sheet-backdrop" id="detailBackdrop">
+    <div class="sheet sheet-auto" id="detailSheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-body" id="detailBody"></div>
+    </div>
+  </div>
+
+  <!-- 設定頁 -->
+  <div class="page" id="settingsPage">
+    <header class="topbar">
+      <button class="icon-btn" id="btnSettingsBack">‹ 返回</button>
+      <span class="topbar-center">設定</span>
+      <span style="width:60px"></span>
+    </header>
+    <div class="settings-body">
+      <h3 class="settings-section">我的行事曆</h3>
+      <div id="calList"></div>
+      <button class="outline-btn" id="btnAddCal">＋ 新增行事曆</button>
+
+      <h3 class="settings-section">通知</h3>
+      <button class="outline-btn" id="btnNotifyPerm">開啟通知權限</button>
+      <p class="hint" id="notifyHint">iPhone 需先「加入主畫面」後,從主畫面開啟 App 才能啟用通知(iOS 16.4+)。</p>
+
+      <h3 class="settings-section">家人共享</h3>
+      <div id="syncStatus" class="hint">尚未設定雲端同步。照專案裡的「SETUP-共享同步.md」設定後,即可與家人即時共享行事曆。</div>
+      <div id="syncControls" hidden>
+        <div class="form-row"><span class="form-label">暱稱</span><input type="text" id="syncName" placeholder="例如:爸爸"></div>
+        <button class="outline-btn" id="btnCreateGroup">建立家庭群組</button>
+        <div class="form-row"><input type="text" id="joinCode" placeholder="輸入邀請碼"><button class="outline-btn" id="btnJoinGroup">加入</button></div>
+        <div class="hint" id="groupInfo"></div>
+      </div>
+
+      <h3 class="settings-section">資料</h3>
+      <button class="outline-btn" id="btnExport">匯出備份 (JSON)</button>
+      <label class="outline-btn" style="text-align:center">匯入備份<input type="file" id="importInput" accept=".json" hidden></label>
+
+      <p class="hint" style="margin-top:24px;text-align:center">給他排下去 v1.0</p>
+    </div>
+  </div>
+
+  <!-- 行事曆編輯 -->
+  <div class="sheet-backdrop" id="calSheetBackdrop">
+    <div class="sheet sheet-auto">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <button class="text-btn" id="btnCalCancel">取消</button>
+        <span class="sheet-title" id="calSheetTitle">新增行事曆</span>
+        <button class="text-btn primary" id="btnCalSave">儲存</button>
+      </div>
+      <div class="sheet-body">
+        <input type="text" id="calName" class="input-title" placeholder="行事曆名稱">
+        <div class="color-palette" id="colorPalette"></div>
+        <button class="danger-btn" id="btnCalDelete" hidden>刪除此行事曆(行程一併刪除)</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script src="config.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

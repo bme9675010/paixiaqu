@@ -38,6 +38,7 @@ create table if not exists events (
   start_at timestamptz not null,
   end_at timestamptz not null,
   repeat text default 'none',
+  exdates jsonb default '[]',
   reminder int,
   notes text default '',
   photo_urls jsonb default '[]',

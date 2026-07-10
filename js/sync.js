@@ -136,7 +136,7 @@ export const sync = {
       await supa.from('events').upsert({
         id: ev.id, group_id: groupId, calendar_id: ev.calendarId,
         title: ev.title, all_day: ev.allDay, start_at: ev.start, end_at: ev.end,
-        repeat: ev.repeat || 'none', reminder: ev.reminder, notes: ev.notes || '',
+        repeat: ev.repeat || 'none', exdates: ev.exdates || [], reminder: ev.reminder, notes: ev.notes || '',
         photo_urls: photoUrls, photo_ids: ev.photos || [],
         deleted: !!ev.deleted, updated_at_ms: ev.updatedAt,
       });
@@ -182,7 +182,7 @@ export const sync = {
           await db.put('events', {
             id: re.id, calendarId: re.calendar_id, title: re.title,
             allDay: re.all_day, start: re.start_at, end: re.end_at,
-            repeat: re.repeat, reminder: re.reminder, notes: re.notes,
+            repeat: re.repeat, exdates: re.exdates || [], reminder: re.reminder, notes: re.notes,
             photos: photoIds, deleted: re.deleted, updatedAt: re.updated_at_ms,
           });
         }

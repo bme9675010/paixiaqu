@@ -15,6 +15,7 @@ let view = 'month';
 let cursor = new Date();      // 目前檢視的月/週/日基準
 let selectedDay = new Date(); // 月檢視選取的日期
 let editingEvent = null;      // 編輯中的行程
+let editingOccStart = null;   // 編輯中的重複行程「這一次」的開始時間 (ms)
 let editingPhotos = [];       // 編輯中的照片 [{id, data}]
 let editingCal = null;        // 編輯中的行事曆
 let calFormColor = PALETTE[0];
@@ -43,11 +44,12 @@ function occurrencesInRange(rangeStart, rangeEnd) {
       if (evStart <= rangeEnd && evEnd >= rangeStart) out.push({ ev, start: evStart, end: evEnd });
       continue;
     }
-    // 從行程開始日往後展開到範圍結束(上限 500 次防呆)
+    // 從行程開始日往後展開到範圍結束(上限 500 次防呆;跳過已排除的單次)
+    const exdates = ev.exdates || [];
     let cur = new Date(evStart);
     for (let i = 0; i < 500 && cur <= rangeEnd; i++) {
       const occEnd = new Date(cur.getTime() + durMs);
-      if (occEnd >= rangeStart) out.push({ ev, start: new Date(cur), end: occEnd });
+      if (occEnd >= rangeStart && !exdates.includes(fmtYMD(cur))) out.push({ ev, start: new Date(cur), end: occEnd });
       if (ev.repeat === 'daily') cur = addDays(cur, 1);
       else if (ev.repeat === 'weekly') cur = addDays(cur, 7);
       else if (ev.repeat === 'monthly') { cur = new Date(cur); cur.setMonth(cur.getMonth() + 1); }
@@ -147,8 +149,11 @@ function renderMonth() {
     if (d.getDay() === 0) cls.push('sun');
     if (d.getDay() === 6) cls.push('sat');
     if (holiday) cls.push('hol');
-    const holHtml = holiday ? `<div class="mcell-holname">${holiday}</div>` : '';
-    const maxChips = holiday ? 2 : 3;
+    const lunar = holiday ? '' : lunarDayLabel(d);
+    const holHtml = holiday
+      ? `<div class="mcell-holname">${holiday}</div>`
+      : (lunar ? `<div class="mcell-lunar">${lunar}</div>` : '');
+    const maxChips = holHtml ? 2 : 3;
     let chips = dayOccs.slice(0, maxChips).map(o =>
       `<div class="chip" style="background:${calById(o.ev.calendarId).color}">${esc(o.ev.title)}</div>`).join('');
     if (dayOccs.length > maxChips) chips += `<div class="chip more">+${dayOccs.length - maxChips}</div>`;
@@ -174,7 +179,10 @@ function renderMonth() {
 
 function renderDayPanel() {
   const d = selectedDay;
-  $('dayEventsHeader').textContent = `${d.getMonth() + 1}月${d.getDate()}日 (${WEEKDAYS[d.getDay()]})`;
+  const lunar = lunarFullLabel(d);
+  const hol = HOLIDAYS[fmtYMD(d)];
+  $('dayEventsHeader').textContent = `${d.getMonth() + 1}月${d.getDate()}日 (${WEEKDAYS[d.getDay()]})`
+    + (lunar ? ` · ${lunar}` : '') + (hol ? ` · ${hol} 🎉` : '');
   const occs = occurrencesOnDay(d);
   if (!occs.length) {
     $('dayEventsList').innerHTML = `<div class="empty-hint">沒有行程,按「＋」新增</div>`;
@@ -184,7 +192,7 @@ function renderDayPanel() {
     const cal = calById(o.ev.calendarId);
     const time = o.ev.allDay ? '全天' : `${fmtHM(o.start)} - ${fmtHM(o.end)}`;
     const icons = [(o.ev.photos && o.ev.photos.length) ? '📷' : '', o.ev.notes ? '📝' : '', (o.ev.repeat && o.ev.repeat !== 'none') ? '🔁' : ''].join('');
-    return `<div class="ev-row" data-id="${o.ev.id}">
+    return `<div class="ev-row" data-id="${o.ev.id}" data-occ="${o.start.getTime()}">
       <div class="ev-row-bar" style="background:${cal.color}"></div>
       <div class="ev-row-main">
         <div class="ev-row-title">${esc(o.ev.title)}</div>
@@ -194,7 +202,7 @@ function renderDayPanel() {
     </div>`;
   }).join('');
   $('dayEventsList').querySelectorAll('.ev-row').forEach(r => {
-    r.onclick = () => showDetail(r.dataset.id);
+    r.onclick = () => showDetail(r.dataset.id, +r.dataset.occ);
   });
 }
 
@@ -240,7 +248,7 @@ function timedEventsHtml(occs, d) {
     const timeLabel = sameDay(it.o.start, it.o.end)
       ? `${fmtHM(it.o.start)}${it.total > 2 ? '' : ' - ' + fmtHM(it.o.end)}`
       : fmtHM(it.o.start);
-    html += `<div class="tl-event" data-id="${it.o.ev.id}" style="top:${top}px;height:${height}px;left:calc(${it.col * w}% + 2px);width:calc(${w}% - 5px);background:${calById(it.o.ev.calendarId).color}"><b>${esc(it.o.ev.title)}</b>${timeLabel}</div>`;
+    html += `<div class="tl-event" data-id="${it.o.ev.id}" data-occ="${it.o.start.getTime()}" style="top:${top}px;height:${height}px;left:calc(${it.col * w}% + 2px);width:calc(${w}% - 5px);background:${calById(it.o.ev.calendarId).color}"><b>${esc(it.o.ev.title)}</b>${timeLabel}</div>`;
   }
   return html;
 }
@@ -255,7 +263,7 @@ function renderWeek() {
   const alldayOccs = occs.filter(o => o.ev.allDay);
   $('weekAllday').innerHTML = alldayOccs.length
     ? `<span class="allday-label">全天</span>` + alldayOccs.map(o =>
-        `<span class="allday-chip" data-id="${o.ev.id}" style="background:${calById(o.ev.calendarId).color}">${o.start.getMonth() + 1}/${o.start.getDate()} ${esc(o.ev.title)}</span>`).join('')
+        `<span class="allday-chip" data-id="${o.ev.id}" data-occ="${o.start.getTime()}" style="background:${calById(o.ev.calendarId).color}">${o.start.getMonth() + 1}/${o.start.getDate()} ${esc(o.ev.title)}</span>`).join('')
     : '';
 
   // 時間欄
@@ -287,10 +295,10 @@ function renderWeek() {
   $('weekGrid').innerHTML = gutter + cols;
 
   $('weekGrid').querySelectorAll('.tl-event, .allday-chip').forEach(el => {
-    el.onclick = () => showDetail(el.dataset.id);
+    el.onclick = () => showDetail(el.dataset.id, +el.dataset.occ);
   });
   $('weekAllday').querySelectorAll('.allday-chip').forEach(el => {
-    el.onclick = () => showDetail(el.dataset.id);
+    el.onclick = () => showDetail(el.dataset.id, +el.dataset.occ);
   });
   $('weekGrid').querySelectorAll('.wcol-head').forEach(el => {
     el.onclick = () => {
@@ -323,7 +331,7 @@ function renderDay() {
   const alldayOccs = occs.filter(o => o.ev.allDay);
   $('dayAllday').innerHTML = alldayOccs.length
     ? `<span class="allday-label">全天</span>` + alldayOccs.map(o =>
-        `<span class="allday-chip" data-id="${o.ev.id}" style="background:${calById(o.ev.calendarId).color}">${esc(o.ev.title)}</span>`).join('')
+        `<span class="allday-chip" data-id="${o.ev.id}" data-occ="${o.start.getTime()}" style="background:${calById(o.ev.calendarId).color}">${esc(o.ev.title)}</span>`).join('')
     : '';
 
   let lines = '';
@@ -341,8 +349,8 @@ function renderDay() {
 
   $('dayGrid').innerHTML = `<div style="position:relative;height:${24 * HOUR_H}px;margin-right:8px">${lines}
     <div class="tl-body" data-date="${fmtYMD(d)}" style="position:absolute;left:52px;right:0;top:0;height:100%">${evHtml}</div>${nowLine}</div>`;
-  $('dayGrid').querySelectorAll('.tl-event').forEach(el => { el.onclick = () => showDetail(el.dataset.id); });
-  $('dayAllday').querySelectorAll('.allday-chip').forEach(el => { el.onclick = () => showDetail(el.dataset.id); });
+  $('dayGrid').querySelectorAll('.tl-event').forEach(el => { el.onclick = () => showDetail(el.dataset.id, +el.dataset.occ); });
+  $('dayAllday').querySelectorAll('.allday-chip').forEach(el => { el.onclick = () => showDetail(el.dataset.id, +el.dataset.occ); });
   bindEmptySlotTap($('dayGrid'));
   requestAnimationFrame(() => { $('dayScroll').scrollTop = 7 * HOUR_H; });
 }
@@ -376,12 +384,30 @@ function navigate(dir) {
   render();
 }
 
+// ── 通用選項對話框 ──
+function choose(title, options) {
+  return new Promise(resolve => {
+    const bd = document.createElement('div');
+    bd.className = 'sheet-backdrop open';
+    bd.style.zIndex = '150';
+    bd.innerHTML = `<div class="sheet sheet-auto"><div class="sheet-handle"></div><div class="sheet-body">
+      <div style="text-align:center;font-weight:700;margin-bottom:12px">${esc(title)}</div>
+      ${options.map((o, i) => `<button class="outline-btn" data-i="${i}">${esc(o)}</button>`).join('')}
+    </div></div>`;
+    document.body.appendChild(bd);
+    bd.querySelectorAll('.outline-btn').forEach(b => b.onclick = () => { bd.remove(); resolve(options[+b.dataset.i]); });
+    bd.addEventListener('click', e => { if (e.target === bd) { bd.remove(); resolve(null); } });
+  });
+}
+
 // ── 行程詳情 ──
-async function showDetail(id) {
+async function showDetail(id, occMs) {
   const ev = events.find(e => e.id === id);
   if (!ev) return;
   const cal = calById(ev.calendarId);
-  const s = new Date(ev.start), e = new Date(ev.end);
+  const durMs = new Date(ev.end) - new Date(ev.start);
+  const s = occMs ? new Date(occMs) : new Date(ev.start);
+  const e = occMs ? new Date(occMs + durMs) : new Date(ev.end);
   const timeStr = ev.allDay
     ? `${s.getMonth() + 1}月${s.getDate()}日` + (sameDay(s, e) ? '' : ` - ${e.getMonth() + 1}月${e.getDate()}日`) + ' · 全天'
     : `${s.getMonth() + 1}月${s.getDate()}日 ${fmtHM(s)} - ` + (sameDay(s, e) ? '' : `${e.getMonth() + 1}月${e.getDate()}日 `) + fmtHM(e);
@@ -410,13 +436,14 @@ async function showDetail(id) {
   $('btnDetailClose').onclick = () => $('detailBackdrop').classList.remove('open');
   $('btnDetailEdit').onclick = () => {
     $('detailBackdrop').classList.remove('open');
-    openEventForm(ev);
+    openEventForm(ev, null, occMs);
   };
 }
 
 // ── 行程表單 ──
-async function openEventForm(ev = null, preset = null) {
+async function openEventForm(ev = null, preset = null, occMs = null) {
   editingEvent = ev;
+  editingOccStart = occMs;
   editingPhotos = [];
   $('eventSheetTitle').textContent = ev ? '編輯行程' : '新增行程';
   $('btnEventDelete').hidden = !ev;
@@ -438,7 +465,11 @@ async function openEventForm(ev = null, preset = null) {
   $('evAllDay').checked = !!base.allDay;
 
   let s, e;
-  if (ev) { s = new Date(ev.start); e = new Date(ev.end); }
+  if (ev && occMs && ev.repeat && ev.repeat !== 'none') {
+    // 編輯重複行程的其中一次:表單顯示該次的日期
+    const durMs = new Date(ev.end) - new Date(ev.start);
+    s = new Date(occMs); e = new Date(occMs + durMs);
+  } else if (ev) { s = new Date(ev.start); e = new Date(ev.end); }
   else {
     s = new Date((preset && preset.date) || selectedDay);
     if (preset && preset.hour !== undefined) s.setHours(preset.hour, 0, 0, 0);
@@ -535,17 +566,67 @@ async function saveEvent() {
   }
 
   const reminderVal = $('evReminder').value;
-  const ev = {
-    id: editingEvent ? editingEvent.id : db.uid(),
+  const formVals = {
     calendarId,
     title,
     allDay,
-    start: s.toISOString(),
-    end: e.toISOString(),
     repeat: $('evRepeat').value,
     reminder: reminderVal === '' ? null : Number(reminderVal),
     notes: $('evNotes').value.trim(),
     photos: photoIds,
+  };
+
+  // 編輯重複行程的某一次 → 問要改一次還是全部
+  const isRepeating = editingEvent && editingEvent.repeat && editingEvent.repeat !== 'none';
+  if (isRepeating && editingOccStart) {
+    const scope = await choose('這是重複行程', ['只修改這一次', '修改所有重複']);
+    if (!scope) return;
+    if (scope === '只修改這一次') {
+      // 原系列排除這一天,另建一筆獨立行程
+      const orig = {
+        ...editingEvent,
+        exdates: [...(editingEvent.exdates || []), fmtYMD(new Date(editingOccStart))],
+        updatedAt: Date.now(),
+      };
+      const single = {
+        id: db.uid(), ...formVals, repeat: 'none',
+        start: s.toISOString(), end: e.toISOString(),
+        deleted: false, updatedAt: Date.now(),
+      };
+      await db.put('events', orig);
+      await db.put('events', single);
+      events = await db.getAll('events');
+      sync.pushEvent(orig);
+      sync.pushEvent(single);
+      closeEventForm();
+      render();
+      toast('已修改這一次 ✅');
+      return;
+    }
+    // 修改所有重複:保留系列原本的開始「日期」,套用表單的新時間與長度
+    const origStart = new Date(editingEvent.start);
+    if (!allDay) origStart.setHours(s.getHours(), s.getMinutes(), 0, 0);
+    const origEnd = new Date(origStart.getTime() + (e - s));
+    const ev = {
+      ...editingEvent, ...formVals,
+      start: origStart.toISOString(), end: origEnd.toISOString(),
+      updatedAt: Date.now(),
+    };
+    await db.put('events', ev);
+    events = await db.getAll('events');
+    sync.pushEvent(ev);
+    closeEventForm();
+    render();
+    toast('已更新所有重複 ✅');
+    return;
+  }
+
+  const ev = {
+    id: editingEvent ? editingEvent.id : db.uid(),
+    ...formVals,
+    start: s.toISOString(),
+    end: e.toISOString(),
+    exdates: (editingEvent && editingEvent.exdates) || [],
     deleted: false,
     updatedAt: Date.now(),
   };
@@ -559,7 +640,25 @@ async function saveEvent() {
 
 async function deleteEvent() {
   if (!editingEvent) return;
-  if (!confirm('確定刪除這個行程?')) return;
+  const isRepeating = editingEvent.repeat && editingEvent.repeat !== 'none';
+  if (isRepeating && editingOccStart) {
+    const scope = await choose('刪除重複行程', ['只刪除這一次', '刪除整個重複行程']);
+    if (!scope) return;
+    if (scope === '只刪除這一次') {
+      const ev = {
+        ...editingEvent,
+        exdates: [...(editingEvent.exdates || []), fmtYMD(new Date(editingOccStart))],
+        updatedAt: Date.now(),
+      };
+      await db.put('events', ev);
+      events = await db.getAll('events');
+      sync.pushEvent(ev);
+      closeEventForm();
+      render();
+      toast('已刪除這一次');
+      return;
+    }
+  } else if (!confirm('確定刪除這個行程?')) return;
   const ev = { ...editingEvent, deleted: true, updatedAt: Date.now() };
   await db.put('events', ev);
   if (ev.photos) for (const pid of ev.photos) await db.del('photos', pid);
@@ -573,6 +672,7 @@ async function deleteEvent() {
 function closeEventForm() {
   $('eventSheetBackdrop').classList.remove('open');
   editingEvent = null;
+  editingOccStart = null;
   editingPhotos = [];
 }
 
@@ -702,6 +802,150 @@ function checkReminders() {
   }
 }
 
+// ── 匯入 .ics(iPhone / TimeTree 行事曆) ──
+function parseIcsDate(val) {
+  let m = val.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) return { date: new Date(+m[1], +m[2] - 1, +m[3]), allDay: true };
+  m = val.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
+  if (m) {
+    const date = m[7]
+      ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]))
+      : new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    return { date, allDay: false };
+  }
+  return null;
+}
+
+function unescapeIcs(s) {
+  return s.replace(/\\n/gi, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\');
+}
+
+async function importICS(file) {
+  try {
+    const text = await file.text();
+    // 展開折行(ics 規範:續行以空白開頭)
+    const lines = text.replace(/\r\n/g, '\n').replace(/\n[ \t]/g, '').split('\n');
+    const vevents = [];
+    let cur = null;
+    for (const line of lines) {
+      if (line === 'BEGIN:VEVENT') { cur = {}; continue; }
+      if (line === 'END:VEVENT') { if (cur) vevents.push(cur); cur = null; continue; }
+      if (!cur) continue;
+      const idx = line.indexOf(':');
+      if (idx < 0) continue;
+      const name = line.slice(0, idx).split(';')[0];
+      cur[name] = line.slice(idx + 1);
+    }
+    if (!vevents.length) { toast('檔案裡沒有行程'); return; }
+
+    // 匯入的行程統一放進「匯入」行事曆
+    let cal = calendars.find(c => !c.deleted && c.name === '匯入');
+    if (!cal) {
+      cal = { id: db.uid(), name: '匯入', color: '#607D8B', hidden: false, deleted: false, updatedAt: Date.now() };
+      await db.put('calendars', cal);
+      sync.pushCalendar(cal);
+    }
+
+    let count = 0;
+    for (const v of vevents) {
+      if (!v.SUMMARY || !v.DTSTART) continue;
+      const ds = parseIcsDate(v.DTSTART);
+      if (!ds) continue;
+      const de = v.DTEND ? parseIcsDate(v.DTEND) : null;
+      const start = ds.date;
+      let end = de ? de.date : new Date(start.getTime() + (ds.allDay ? 0 : 3600000));
+      if (ds.allDay) {
+        if (de) end = new Date(end.getTime() - 86400000); // ics 全天結束日不含當天
+        end = endOfDay(end < start ? start : end);
+      }
+      const rr = (v.RRULE || '').match(/FREQ=(DAILY|WEEKLY|MONTHLY|YEARLY)/);
+      const ev = {
+        id: db.uid(), calendarId: cal.id,
+        title: unescapeIcs(v.SUMMARY), allDay: ds.allDay,
+        start: start.toISOString(), end: end.toISOString(),
+        repeat: rr ? rr[1].toLowerCase() : 'none',
+        exdates: [], reminder: null,
+        notes: v.DESCRIPTION ? unescapeIcs(v.DESCRIPTION) : '',
+        photos: [], deleted: false, updatedAt: Date.now(),
+      };
+      await db.put('events', ev);
+      sync.pushEvent(ev);
+      count++;
+    }
+    calendars = await db.getAll('calendars');
+    events = await db.getAll('events');
+    render();
+    renderSettings();
+    toast(`匯入 ${count} 個行程 ✅`);
+  } catch (e) { toast('匯入失敗:' + e.message); }
+}
+
+// ── 搜尋 ──
+function openSearch() {
+  $('searchBackdrop').classList.add('open');
+  $('searchInput').value = '';
+  $('searchResults').innerHTML = '<div class="empty-hint">輸入標題或備註關鍵字</div>';
+  setTimeout(() => $('searchInput').focus(), 250);
+}
+
+function runSearch() {
+  const q = $('searchInput').value.trim().toLowerCase();
+  const box = $('searchResults');
+  if (!q) { box.innerHTML = '<div class="empty-hint">輸入標題或備註關鍵字</div>'; return; }
+  const hits = events
+    .filter(ev => !ev.deleted && ((ev.title || '').toLowerCase().includes(q) || (ev.notes || '').toLowerCase().includes(q)))
+    .sort((a, b) => new Date(b.start) - new Date(a.start))
+    .slice(0, 50);
+  if (!hits.length) { box.innerHTML = '<div class="empty-hint">找不到符合的行程</div>'; return; }
+  box.innerHTML = hits.map(ev => {
+    const cal = calById(ev.calendarId);
+    const s = new Date(ev.start);
+    const dateStr = `${s.getFullYear()}/${s.getMonth() + 1}/${s.getDate()}`
+      + (ev.allDay ? ' 全天' : ' ' + fmtHM(s))
+      + ((ev.repeat && ev.repeat !== 'none') ? ' 🔁' : '');
+    return `<div class="ev-row" data-id="${ev.id}" data-start="${ev.start}">
+      <div class="ev-row-bar" style="background:${cal.color}"></div>
+      <div class="ev-row-main">
+        <div class="ev-row-title">${esc(ev.title)}</div>
+        <div class="ev-row-time">${dateStr} · ${esc(cal.name)}</div>
+      </div></div>`;
+  }).join('');
+  box.querySelectorAll('.ev-row').forEach(r => {
+    r.onclick = () => {
+      $('searchBackdrop').classList.remove('open');
+      cursor = new Date(r.dataset.start);
+      selectedDay = new Date(cursor);
+      setView('day');
+    };
+  });
+}
+
+// ── 農曆(用瀏覽器內建中國曆,不用資料表) ──
+const LUNAR_DAYS = ['初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十',
+  '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
+  '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十'];
+let lunarDayFmt = null, lunarMonthFmt = null;
+try {
+  lunarDayFmt = new Intl.DateTimeFormat('zh-Hant-u-ca-chinese', { day: 'numeric' });
+  lunarMonthFmt = new Intl.DateTimeFormat('zh-Hant-u-ca-chinese', { month: 'long' });
+} catch { /* 舊瀏覽器不支援就不顯示農曆 */ }
+
+function lunarDayNum(d) {
+  if (!lunarDayFmt) return 0;
+  return parseInt(lunarDayFmt.format(d).replace(/\D/g, ''), 10) || 0;
+}
+function lunarDayLabel(d) {
+  const day = lunarDayNum(d);
+  if (!day) return '';
+  if (day === 1) return lunarMonthFmt.format(d); // 初一顯示月份,例如「六月」
+  return LUNAR_DAYS[day - 1] || '';
+}
+function lunarFullLabel(d) {
+  const day = lunarDayNum(d);
+  if (!day) return '';
+  return '農曆' + lunarMonthFmt.format(d) + (LUNAR_DAYS[day - 1] || '');
+}
+
 // ── 匯出 / 匯入 ──
 async function exportData() {
   const photos = await db.getAll('photos');
@@ -791,9 +1035,14 @@ function bindUI() {
 
   $('btnExport').onclick = exportData;
   $('importInput').onchange = (e) => { if (e.target.files[0]) importData(e.target.files[0]); e.target.value = ''; };
+  $('icsInput').onchange = (e) => { if (e.target.files[0]) importICS(e.target.files[0]); e.target.value = ''; };
+
+  $('btnSearch').onclick = openSearch;
+  $('btnSearchClose').onclick = () => $('searchBackdrop').classList.remove('open');
+  $('searchInput').oninput = runSearch;
 
   // 點背景關閉 sheet(開啟後 300ms 內忽略,避免點擊穿透)
-  for (const id of ['eventSheetBackdrop', 'detailBackdrop', 'calSheetBackdrop']) {
+  for (const id of ['eventSheetBackdrop', 'detailBackdrop', 'calSheetBackdrop', 'searchBackdrop']) {
     const el = $(id);
     let openedAt = 0;
     new MutationObserver(() => { if (el.classList.contains('open')) openedAt = Date.now(); })

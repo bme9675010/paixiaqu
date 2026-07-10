@@ -25,7 +25,10 @@
       <span id="titleText">2026年7月</span>
       <button class="nav-arrow" id="btnNext">›</button>
     </div>
-    <button class="icon-btn" id="btnSettings" title="設定">⚙️</button>
+    <div style="display:flex;gap:6px">
+      <button class="icon-btn" id="btnSearch" title="搜尋">🔍</button>
+      <button class="icon-btn" id="btnSettings" title="設定">⚙️</button>
+    </div>
   </header>
 
   <!-- 檢視切換 -->
@@ -150,6 +153,21 @@
     </div>
   </div>
 
+  <!-- 搜尋 -->
+  <div class="sheet-backdrop" id="searchBackdrop">
+    <div class="sheet" id="searchSheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <span class="sheet-title">搜尋行程</span>
+        <button class="text-btn" id="btnSearchClose">關閉</button>
+      </div>
+      <div class="sheet-body">
+        <input type="text" id="searchInput" class="input-title" placeholder="輸入關鍵字…" autocomplete="off">
+        <div id="searchResults"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- 設定頁 -->
   <div class="page" id="settingsPage">
     <header class="topbar">
@@ -176,6 +194,8 @@
       </div>
 
       <h3 class="settings-section">資料</h3>
+      <label class="outline-btn" style="text-align:center">📥 匯入 iPhone/TimeTree 行事曆 (.ics)<input type="file" id="icsInput" accept=".ics" hidden></label>
+      <p class="hint">iPhone:行事曆 App → 行事曆 → 分享/輸出;TimeTree:網頁版可匯出 ics 檔。匯入的行程會放進「匯入」行事曆。</p>
       <button class="outline-btn" id="btnExport">匯出備份 (JSON)</button>
       <label class="outline-btn" style="text-align:center">匯入備份<input type="file" id="importInput" accept=".json" hidden></label>
 

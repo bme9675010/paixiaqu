@@ -109,6 +109,10 @@ body {
   font-size: 8.5px; color: #e5484d; text-align: center; line-height: 1.2;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;
 }
+.mcell-lunar {
+  font-size: 8.5px; color: var(--text2); opacity: .75; text-align: center; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; flex-shrink: 0;
+}
 
 .day-events-panel {
   flex: 1; min-height: 90px; background: var(--bg);

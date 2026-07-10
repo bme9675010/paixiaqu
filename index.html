@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <title>給他排下去</title>
 <meta name="description" content="家庭共享行事曆 - 給他排下去">
-<meta name="theme-color" content="#4A7CFA">
+<meta name="theme-color" content="#4A7CFA" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1d26" media="(prefers-color-scheme: dark)">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -43,7 +44,10 @@
     <div class="weekday-row" id="weekdayRow"></div>
     <div class="month-grid" id="monthGrid"></div>
     <div class="day-events-panel" id="dayEventsPanel">
-      <div class="day-events-header" id="dayEventsHeader"></div>
+      <div class="day-events-header">
+        <span id="dayEventsHeader"></span>
+        <button class="day-add-btn" id="btnDayAdd" title="新增當天行程">＋</button>
+      </div>
       <div class="day-events-list" id="dayEventsList"></div>
     </div>
   </section>

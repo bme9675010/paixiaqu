@@ -248,7 +248,7 @@ function timedEventsHtml(occs, d) {
     const timeLabel = sameDay(it.o.start, it.o.end)
       ? `${fmtHM(it.o.start)}${it.total > 2 ? '' : ' - ' + fmtHM(it.o.end)}`
       : fmtHM(it.o.start);
-    html += `<div class="tl-event" data-id="${it.o.ev.id}" data-occ="${it.o.start.getTime()}" style="top:${top}px;height:${height}px;left:calc(${it.col * w}% + 2px);width:calc(${w}% - 5px);background:${calById(it.o.ev.calendarId).color}"><b>${esc(it.o.ev.title)}</b>${timeLabel}</div>`;
+    html += `<div class="tl-event" data-id="${it.o.ev.id}" data-occ="${it.o.start.getTime()}" style="top:${top}px;height:${height}px;left:calc(${it.col * w}% + 2px);width:calc(${w}% - 5px);background:${calById(it.o.ev.calendarId).color}"><b>${esc(it.o.ev.title)}</b><span class="tl-time">${timeLabel}</span></div>`;
   }
   return html;
 }
@@ -287,7 +287,8 @@ function renderWeek() {
       nowLine = `<div class="now-line" style="top:${top}px"></div>`;
     }
 
-    cols += `<div class="wcol ${isToday ? 'today-col' : ''}">
+    const wkCls = d.getDay() === 0 ? 'sun-col' : d.getDay() === 6 ? 'sat-col' : '';
+    cols += `<div class="wcol ${isToday ? 'today-col' : wkCls}">
       <div class="wcol-head ${isToday ? 'today' : ''}" data-date="${fmtYMD(d)}">${WEEKDAYS[d.getDay()]}<b>${d.getDate()}</b></div>
       <div class="tl-body" data-date="${fmtYMD(d)}" style="position:relative;height:${24 * HOUR_H}px">${lines}${evHtml}${nowLine}</div>
     </div>`;
@@ -999,6 +1000,7 @@ function bindUI() {
     if (view !== 'month') selectedDay = new Date(cursor);
     openEventForm();
   };
+  $('btnDayAdd').onclick = () => openEventForm(null, { date: selectedDay });
 
   $('btnEventCancel').onclick = closeEventForm;
   $('btnEventSave').onclick = saveEvent;

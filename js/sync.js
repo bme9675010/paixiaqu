@@ -1,24 +1,40 @@
-// 雲端同步 (Supabase) — 家人共享行事曆
-// 未設定 config.js 的 SUPABASE_URL 時,App 以純本地模式運作。
+// 雲端同步 (Firebase Firestore) — 家人共享行事曆
+// 未設定 config.js 的 Firebase 金鑰時,App 以純本地模式運作。
 import { db } from './db.js';
 
-let supa = null;
+const SDK_VER = '10.12.2';
+const PHOTO_MAX_BASE64 = 900000; // Firestore 單一文件上限 1MiB,照片留安全邊界
+
+let fb = null; // { auth, fs, uid, mods:{...firestore funcs} }
 let groupId = null;
 let onRemoteChange = null;
 let toast = () => {};
-let channel = null;
+let unsubEvents = null, unsubCalendars = null;
 
 const $ = id => document.getElementById(id);
 
 function configured() {
-  return typeof window.APP_CONFIG === 'object'
-    && window.APP_CONFIG.SUPABASE_URL
-    && !window.APP_CONFIG.SUPABASE_URL.includes('你的');
+  const c = window.APP_CONFIG || {};
+  return !!(c.FIREBASE_API_KEY && c.FIREBASE_PROJECT_ID)
+    && !String(c.FIREBASE_API_KEY).includes('你的');
 }
 
-async function loadSupabase() {
-  const mod = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
-  return mod.createClient(window.APP_CONFIG.SUPABASE_URL, window.APP_CONFIG.SUPABASE_ANON_KEY);
+async function loadFirebase() {
+  const [{ initializeApp }, authMod, fsMod] = await Promise.all([
+    import(`https://www.gstatic.com/firebasejs/${SDK_VER}/firebase-app.js`),
+    import(`https://www.gstatic.com/firebasejs/${SDK_VER}/firebase-auth.js`),
+    import(`https://www.gstatic.com/firebasejs/${SDK_VER}/firebase-firestore.js`),
+  ]);
+  const c = window.APP_CONFIG;
+  const app = initializeApp({
+    apiKey: c.FIREBASE_API_KEY,
+    authDomain: c.FIREBASE_AUTH_DOMAIN || `${c.FIREBASE_PROJECT_ID}.firebaseapp.com`,
+    projectId: c.FIREBASE_PROJECT_ID,
+    appId: c.FIREBASE_APP_ID,
+  });
+  const auth = authMod.getAuth(app);
+  const fs = fsMod.getFirestore(app);
+  return { auth, fs, authMod, fsMod };
 }
 
 export const sync = {
@@ -27,10 +43,13 @@ export const sync = {
     toast = opts.toast;
     if (!configured()) return;
     try {
-      supa = await loadSupabase();
-      // 匿名登入(每台裝置一個身分)
-      const { data: { session } } = await supa.auth.getSession();
-      if (!session) await supa.auth.signInAnonymously();
+      const { auth, fs, authMod, fsMod } = await loadFirebase();
+      let user = auth.currentUser;
+      if (!user) {
+        const cred = await authMod.signInAnonymously(auth);
+        user = cred.user;
+      }
+      fb = { auth, fs, uid: user.uid, m: { ...authMod, ...fsMod } };
       groupId = await db.getMeta('groupId');
       if (groupId) {
         await this.pullAll();
@@ -67,22 +86,31 @@ export const sync = {
   },
 
   async createGroup() {
-    if (!supa) return;
+    if (!fb) return;
     try {
-      const code = Math.random().toString(36).slice(2, 8).toUpperCase();
-      const { data, error } = await supa.from('groups').insert({ invite_code: code, name: '我的家庭' }).select().single();
-      if (error) throw error;
-      await this._joined(data.id, code);
+      const { doc, setDoc, collection, getDocs, query, where } = fb.m;
+      let code;
+      // 隨機碼避免與現有群組撞號
+      for (let i = 0; i < 5; i++) {
+        code = Math.random().toString(36).slice(2, 8).toUpperCase();
+        const snap = await getDocs(query(collection(fb.fs, 'groups'), where('inviteCode', '==', code)));
+        if (snap.empty) break;
+      }
+      const ref = doc(collection(fb.fs, 'groups'));
+      await setDoc(ref, { inviteCode: code, name: '我的家庭', createdAt: Date.now() });
+      await this._joined(ref.id, code);
       toast('群組建立成功 🎉');
     } catch (e) { toast('建立失敗:' + e.message); }
   },
 
   async joinGroup(code) {
-    if (!supa || !code) { toast('請輸入邀請碼'); return; }
+    if (!fb || !code) { toast('請輸入邀請碼'); return; }
     try {
-      const { data, error } = await supa.from('groups').select().eq('invite_code', code.toUpperCase()).single();
-      if (error || !data) throw new Error('找不到這個邀請碼');
-      await this._joined(data.id, data.invite_code);
+      const { collection, query, where, getDocs } = fb.m;
+      const snap = await getDocs(query(collection(fb.fs, 'groups'), where('inviteCode', '==', code.toUpperCase())));
+      if (snap.empty) throw new Error('找不到這個邀請碼');
+      const d = snap.docs[0];
+      await this._joined(d.id, d.data().inviteCode);
       toast('加入成功 🎉');
     } catch (e) { toast('加入失敗:' + e.message); }
   },
@@ -91,8 +119,10 @@ export const sync = {
     groupId = gid;
     await db.setMeta('groupId', gid);
     await db.setMeta('groupCode', code);
-    const { data: { user } } = await supa.auth.getUser();
-    await supa.from('members').upsert({ group_id: gid, user_id: user.id, name: (await db.getMeta('memberName')) || '家人' });
+    const { doc, setDoc } = fb.m;
+    await setDoc(doc(fb.fs, 'groups', gid, 'members', fb.uid), {
+      name: (await db.getMeta('memberName')) || '家人', joinedAt: Date.now(),
+    });
     // 把本地既有資料推上雲端
     const cals = await db.getAll('calendars');
     const evs = await db.getAll('events');
@@ -105,85 +135,77 @@ export const sync = {
   },
 
   async pushCalendar(cal) {
-    if (!supa || !groupId) return;
+    if (!fb || !groupId) return;
     try {
-      await supa.from('calendars').upsert({
-        id: cal.id, group_id: groupId, name: cal.name, color: cal.color,
-        deleted: !!cal.deleted, updated_at_ms: cal.updatedAt,
+      const { doc, setDoc } = fb.m;
+      await setDoc(doc(fb.fs, 'groups', groupId, 'calendars', cal.id), {
+        name: cal.name, color: cal.color, deleted: !!cal.deleted, updatedAtMs: cal.updatedAt,
       });
     } catch (e) { console.warn('push calendar 失敗', e); }
   },
 
   async pushEvent(ev) {
-    if (!supa || !groupId) return;
+    if (!fb || !groupId) return;
     try {
-      // 照片上傳到 Storage
-      const photoUrls = [];
+      const { doc, setDoc } = fb.m;
+      // 照片直接存進 Firestore(base64),避免需要開通付費的 Storage
       for (const pid of (ev.photos || [])) {
         const p = await db.get('photos', pid);
-        if (!p) continue;
-        if (p.url) { photoUrls.push(p.url); continue; }
-        const blob = await (await fetch(p.data)).blob();
-        const path = `${groupId}/${pid}.jpg`;
-        const { error } = await supa.storage.from('photos').upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
-        if (!error) {
-          const { data } = supa.storage.from('photos').getPublicUrl(path);
-          p.url = data.publicUrl;
-          await db.put('photos', p);
-          photoUrls.push(p.url);
-        }
+        if (!p || p.synced) continue;
+        if (p.data.length > PHOTO_MAX_BASE64) { console.warn('照片太大,略過雲端同步:', pid); continue; }
+        await setDoc(doc(fb.fs, 'groups', groupId, 'photos', pid), { data: p.data, updatedAtMs: p.updatedAt || Date.now() });
+        p.synced = true;
+        await db.put('photos', p);
       }
-      await supa.from('events').upsert({
-        id: ev.id, group_id: groupId, calendar_id: ev.calendarId,
-        title: ev.title, all_day: ev.allDay, start_at: ev.start, end_at: ev.end,
-        repeat: ev.repeat || 'none', exdates: ev.exdates || [], reminder: ev.reminder, notes: ev.notes || '',
-        photo_urls: photoUrls, photo_ids: ev.photos || [],
-        deleted: !!ev.deleted, updated_at_ms: ev.updatedAt,
+      await setDoc(doc(fb.fs, 'groups', groupId, 'events', ev.id), {
+        calendarId: ev.calendarId, title: ev.title, allDay: ev.allDay,
+        startAt: ev.start, endAt: ev.end,
+        repeat: ev.repeat || 'none', exdates: ev.exdates || [],
+        reminder: ev.reminder, notes: ev.notes || '',
+        photoIds: ev.photos || [],
+        deleted: !!ev.deleted, updatedAtMs: ev.updatedAt,
       });
     } catch (e) { console.warn('push event 失敗', e); }
   },
 
   // 從雲端拉全部資料,以 updatedAt 較新者為準
   async pullAll() {
-    if (!supa || !groupId) return;
+    if (!fb || !groupId) return;
     try {
-      const { data: cals } = await supa.from('calendars').select().eq('group_id', groupId);
-      for (const rc of (cals || [])) {
-        const local = await db.get('calendars', rc.id);
-        if (!local || rc.updated_at_ms > local.updatedAt) {
+      const { doc, getDoc, collection, getDocs } = fb.m;
+      const calSnap = await getDocs(collection(fb.fs, 'groups', groupId, 'calendars'));
+      for (const d of calSnap.docs) {
+        const rc = d.data();
+        const local = await db.get('calendars', d.id);
+        if (!local || rc.updatedAtMs > local.updatedAt) {
           await db.put('calendars', {
-            id: rc.id, name: rc.name, color: rc.color,
+            id: d.id, name: rc.name, color: rc.color,
             hidden: local ? local.hidden : false,
-            deleted: rc.deleted, updatedAt: rc.updated_at_ms,
+            deleted: rc.deleted, updatedAt: rc.updatedAtMs,
           });
         }
       }
-      const { data: evs } = await supa.from('events').select().eq('group_id', groupId);
-      for (const re of (evs || [])) {
-        const local = await db.get('events', re.id);
-        if (!local || re.updated_at_ms > local.updatedAt) {
-          // 下載照片
-          const photoIds = re.photo_ids || [];
-          for (let i = 0; i < photoIds.length; i++) {
-            const existing = await db.get('photos', photoIds[i]);
-            if (!existing && re.photo_urls && re.photo_urls[i]) {
-              try {
-                const resp = await fetch(re.photo_urls[i]);
-                const blob = await resp.blob();
-                const dataUrl = await new Promise(res => {
-                  const r = new FileReader();
-                  r.onload = () => res(r.result);
-                  r.readAsDataURL(blob);
-                });
-                await db.put('photos', { id: photoIds[i], data: dataUrl, url: re.photo_urls[i], updatedAt: Date.now() });
-              } catch { /* 照片抓不到就略過 */ }
-            }
+      const evSnap = await getDocs(collection(fb.fs, 'groups', groupId, 'events'));
+      for (const d of evSnap.docs) {
+        const re = d.data();
+        const local = await db.get('events', d.id);
+        if (!local || re.updatedAtMs > local.updatedAt) {
+          const photoIds = re.photoIds || [];
+          for (const pid of photoIds) {
+            const existing = await db.get('photos', pid);
+            if (existing) continue;
+            try {
+              const pSnap = await getDoc(doc(fb.fs, 'groups', groupId, 'photos', pid));
+              if (pSnap.exists()) {
+                await db.put('photos', { id: pid, data: pSnap.data().data, synced: true, updatedAt: Date.now() });
+              }
+            } catch { /* 照片抓不到就略過 */ }
           }
           await db.put('events', {
-            id: re.id, calendarId: re.calendar_id, title: re.title,
-            allDay: re.all_day, start: re.start_at, end: re.end_at,
+            id: d.id, calendarId: re.calendarId, title: re.title,
+            allDay: re.allDay, start: re.startAt, end: re.endAt,
             repeat: re.repeat, exdates: re.exdates || [], reminder: re.reminder, notes: re.notes,
-            photos: photoIds, deleted: re.deleted, updatedAt: re.updated_at_ms,
+            photos: photoIds, deleted: re.deleted, updatedAt: re.updatedAtMs,
           });
         }
       }
@@ -192,12 +214,18 @@ export const sync = {
 
   // 即時訂閱:家人改了行程,自己手機馬上更新
   subscribe() {
-    if (!supa || !groupId || channel) return;
-    channel = supa.channel('group-' + groupId)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'events', filter: `group_id=eq.${groupId}` },
-        async () => { await this.pullAll(); if (onRemoteChange) onRemoteChange(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'calendars', filter: `group_id=eq.${groupId}` },
-        async () => { await this.pullAll(); if (onRemoteChange) onRemoteChange(); })
-      .subscribe();
+    if (!fb || !groupId || unsubEvents) return;
+    const { collection, onSnapshot } = fb.m;
+    let first1 = true, first2 = true;
+    unsubEvents = onSnapshot(collection(fb.fs, 'groups', groupId, 'events'), async () => {
+      if (first1) { first1 = false; return; } // 略過初次訂閱時的既有快照(pullAll 已處理過)
+      await this.pullAll();
+      if (onRemoteChange) onRemoteChange();
+    });
+    unsubCalendars = onSnapshot(collection(fb.fs, 'groups', groupId, 'calendars'), async () => {
+      if (first2) { first2 = false; return; }
+      await this.pullAll();
+      if (onRemoteChange) onRemoteChange();
+    });
   },
 };

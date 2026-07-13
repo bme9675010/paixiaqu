@@ -1,0 +1,38 @@
+// 給他排下去 — Firestore 安全規則
+// 使用方式:Firebase 主控台 → Firestore Database → Rules 分頁 → 貼上整份 → Publish
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isMember(groupId) {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid));
+    }
+
+    match /groups/{groupId} {
+      // 任何已登入(含匿名登入)使用者可讀取群組基本資料 / 用邀請碼查詢
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if false;
+
+      match /members/{uid} {
+        allow read: if isMember(groupId);
+        allow create, update: if request.auth != null && request.auth.uid == uid;
+        allow delete: if false;
+      }
+
+      match /calendars/{calId} {
+        allow read, write: if isMember(groupId);
+      }
+
+      match /events/{eventId} {
+        allow read, write: if isMember(groupId);
+      }
+
+      match /photos/{photoId} {
+        allow read, write: if isMember(groupId);
+      }
+    }
+  }
+}

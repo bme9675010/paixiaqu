@@ -29,20 +29,20 @@ index.html            主頁面
 css/style.css         樣式
 js/app.js             主程式(檢視渲染、行程 CRUD、提醒)
 js/db.js              本地資料庫(IndexedDB)
-js/sync.js            雲端同步(Supabase,家人共享)
-config.js             同步設定(填入 Supabase 金鑰後開啟共享)
+js/sync.js            雲端同步(Firebase Firestore,家人共享)
+config.js             同步設定(填入 Firebase 金鑰後開啟共享)
 sw.js                 Service Worker(離線快取、通知)
 manifest.webmanifest  PWA 設定
 icons/                App 圖示
-supabase/schema.sql   雲端資料庫結構
+firebase/firestore.rules  雲端資料庫安全規則
 SETUP-共享同步.md      家人共享設定教學
 ```
 
 ## 開啟家人共享
 
-見 [SETUP-共享同步.md](SETUP-共享同步.md)(免費 Supabase 帳號,約 10 分鐘)。
+見 [SETUP-共享同步.md](SETUP-共享同步.md)(免費 Firebase 專案,約 10 分鐘,不需信用卡)。
 
 ## 資料儲存
 
 - 本地:IndexedDB(手機裡),不設定雲端也能完整使用
-- 雲端(選用):Supabase 免費方案,家庭群組共享 + 即時同步 + 照片備份
+- 雲端(選用):Firebase 免費方案(Spark),家庭群組共享 + 即時同步 + 照片備份

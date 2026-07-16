@@ -218,8 +218,10 @@ export const sync = {
       for (const pid of (ev.photos || [])) {
         const p = await db.get('photos', pid);
         if (!p || p.synced) continue;
-        if (p.data.length > PHOTO_MAX_BASE64) { console.warn('照片太大,略過雲端同步:', pid); continue; }
-        await setDoc(doc(fb.fs, 'groups', groupId, 'photos', pid), { data: p.data, updatedAtMs: p.updatedAt || Date.now() });
+        if (p.data.length > PHOTO_MAX_BASE64) { console.warn('附件太大,略過雲端同步:', pid); continue; }
+        await setDoc(doc(fb.fs, 'groups', groupId, 'photos', pid), {
+          data: p.data, name: p.name || '', type: p.type || '', updatedAtMs: p.updatedAt || Date.now(),
+        });
         p.synced = true;
         await db.put('photos', p);
       }
@@ -227,7 +229,7 @@ export const sync = {
         calendarId: ev.calendarId, title: ev.title, allDay: ev.allDay,
         startAt: ev.start, endAt: ev.end,
         repeat: ev.repeat || 'none', exdates: ev.exdates || [],
-        reminder: ev.reminder, reminder2: ev.reminder2 ?? null, notes: ev.notes || '',
+        reminder: ev.reminder, reminder2: ev.reminder2 ?? null, url: ev.url || '', notes: ev.notes || '',
         photoIds: ev.photos || [],
         deleted: !!ev.deleted, updatedAtMs: ev.updatedAt,
       });
@@ -263,14 +265,15 @@ export const sync = {
             try {
               const pSnap = await getDoc(doc(fb.fs, 'groups', groupId, 'photos', pid));
               if (pSnap.exists()) {
-                await db.put('photos', { id: pid, data: pSnap.data().data, synced: true, updatedAt: Date.now() });
+                const pd = pSnap.data();
+                await db.put('photos', { id: pid, data: pd.data, name: pd.name || '', type: pd.type || '', synced: true, updatedAt: Date.now() });
               }
-            } catch { /* 照片抓不到就略過 */ }
+            } catch { /* 附件抓不到就略過 */ }
           }
           await db.put('events', {
             id: d.id, calendarId: re.calendarId, title: re.title,
             allDay: re.allDay, start: re.startAt, end: re.endAt,
-            repeat: re.repeat, exdates: re.exdates || [], reminder: re.reminder, reminder2: re.reminder2 ?? null, notes: re.notes,
+            repeat: re.repeat, exdates: re.exdates || [], reminder: re.reminder, reminder2: re.reminder2 ?? null, url: re.url || '', notes: re.notes,
             photos: photoIds, deleted: re.deleted, updatedAt: re.updatedAtMs,
           });
         }

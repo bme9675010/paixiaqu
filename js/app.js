@@ -191,7 +191,7 @@ function renderDayPanel() {
   $('dayEventsList').innerHTML = occs.map(o => {
     const cal = calById(o.ev.calendarId);
     const time = o.ev.allDay ? '全天' : `${fmtHM(o.start)} - ${fmtHM(o.end)}`;
-    const icons = [(o.ev.photos && o.ev.photos.length) ? '📷' : '', o.ev.notes ? '📝' : '', (o.ev.repeat && o.ev.repeat !== 'none') ? '🔁' : ''].join('');
+    const icons = [(o.ev.photos && o.ev.photos.length) ? '📎' : '', o.ev.url ? '🔗' : '', o.ev.notes ? '📝' : '', (o.ev.repeat && o.ev.repeat !== 'none') ? '🔁' : ''].join('');
     return `<div class="ev-row" data-id="${o.ev.id}" data-occ="${o.start.getTime()}">
       <div class="ev-row-bar" style="background:${cal.color}"></div>
       <div class="ev-row-main">
@@ -416,17 +416,21 @@ async function showDetail(id, occMs) {
 
   let photosHtml = '';
   if (ev.photos && ev.photos.length) {
-    const imgs = [];
+    const items = [];
     for (const pid of ev.photos) {
       const p = await db.get('photos', pid);
-      if (p) imgs.push(`<img src="${p.data}" alt="照片">`);
+      if (!p) continue;
+      if (isImageAttachment(p)) items.push(`<img src="${p.data}" alt="照片">`);
+      else items.push(`<a class="link-row" href="${p.data}" target="_blank" rel="noopener">📄 <span>${esc(p.name || '檔案')}</span></a>`);
     }
-    if (imgs.length) photosHtml = `<div class="detail-photos">${imgs.join('')}</div>`;
+    if (items.length) photosHtml = `<div class="detail-photos">${items.join('')}</div>`;
   }
+  const urlHtml = ev.url ? `<a class="link-row" href="${esc(ev.url)}" target="_blank" rel="noopener">🔗 <span>${esc(ev.url)}</span></a>` : '';
 
   $('detailBody').innerHTML = `
     <div class="detail-title">${esc(ev.title)}<span class="detail-cal" style="background:${cal.color}">${esc(cal.name)}</span></div>
     <div class="detail-time">${timeStr}${repeatStr ? ' · 🔁 ' + repeatStr : ''}${ev.reminder !== null && ev.reminder !== undefined && ev.reminder !== '' ? ' · 🔔' : ''}</div>
+    ${urlHtml}
     ${ev.notes ? `<div class="detail-notes">${esc(ev.notes)}</div>` : ''}
     ${photosHtml}
     <div class="detail-actions">
@@ -489,6 +493,7 @@ async function openEventForm(ev = null, preset = null, occMs = null) {
   $('evReminder2').value = hasReminder2 ? String(base.reminder2) : '';
   $('reminder2Row').hidden = !hasReminder2;
   $('btnAddReminder2').hidden = hasReminder2;
+  $('evUrl').value = base.url || '';
   $('evNotes').value = base.notes || '';
 
   if (ev && ev.photos) {
@@ -509,6 +514,18 @@ function toggleTimeInputs() {
   $('evEndTime').style.display = allDay ? 'none' : '';
 }
 
+function isImageAttachment(p) {
+  return p.type ? p.type.startsWith('image/') : p.data.startsWith('data:image');
+}
+function fileIcon(name) {
+  const ext = (name || '').split('.').pop().toLowerCase();
+  if (ext === 'pdf') return '📕';
+  if (['doc', 'docx'].includes(ext)) return '📘';
+  if (['xls', 'xlsx'].includes(ext)) return '📗';
+  if (['zip', 'rar', '7z'].includes(ext)) return '🗜️';
+  return '📄';
+}
+
 function renderPhotoStrip() {
   const strip = $('photoStrip');
   strip.querySelectorAll('.photo-wrap').forEach(x => x.remove());
@@ -516,7 +533,10 @@ function renderPhotoStrip() {
   for (const p of editingPhotos) {
     const wrap = document.createElement('div');
     wrap.className = 'photo-wrap';
-    wrap.innerHTML = `<img class="photo-thumb" src="${p.data}"><button class="photo-del">✕</button>`;
+    const inner = isImageAttachment(p)
+      ? `<img class="photo-thumb" src="${p.data}">`
+      : `<div class="file-thumb">${fileIcon(p.name)}<span>${esc(p.name || '檔案')}</span></div>`;
+    wrap.innerHTML = `${inner}<button class="photo-del">✕</button>`;
     wrap.querySelector('.photo-del').onclick = () => {
       editingPhotos = editingPhotos.filter(x => x.id !== p.id);
       renderPhotoStrip();
@@ -542,6 +562,16 @@ function compressImage(file) {
     };
     img.onerror = reject;
     img.src = url;
+  });
+}
+
+// 非圖片檔案直接讀成 data URL(不壓縮)
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
   });
 }
 
@@ -572,6 +602,8 @@ async function saveEvent() {
 
   const reminderVal = $('evReminder').value;
   const reminder2Val = $('reminder2Row').hidden ? '' : $('evReminder2').value;
+  let url = $('evUrl').value.trim();
+  if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url;
   const formVals = {
     calendarId,
     title,
@@ -579,6 +611,7 @@ async function saveEvent() {
     repeat: $('evRepeat').value,
     reminder: reminderVal === '' ? null : Number(reminderVal),
     reminder2: reminder2Val === '' ? null : Number(reminder2Val),
+    url,
     notes: $('evNotes').value.trim(),
     photos: photoIds,
   };
@@ -1026,10 +1059,16 @@ function bindUI() {
   };
   $('evPhotoInput').onchange = async (e) => {
     for (const f of e.target.files) {
+      if (f.size > 10 * 1024 * 1024) { toast(`「${f.name}」超過 10MB,略過`); continue; }
       try {
-        const data = await compressImage(f);
-        editingPhotos.push({ id: db.uid(), data, updatedAt: Date.now() });
-      } catch { toast('照片讀取失敗'); }
+        if (f.type.startsWith('image/')) {
+          const data = await compressImage(f);
+          editingPhotos.push({ id: db.uid(), data, name: f.name, type: 'image/jpeg', updatedAt: Date.now() });
+        } else {
+          const data = await readFileAsDataURL(f);
+          editingPhotos.push({ id: db.uid(), data, name: f.name, type: f.type || 'application/octet-stream', updatedAt: Date.now() });
+        }
+      } catch { toast(`「${f.name}」讀取失敗`); }
     }
     e.target.value = '';
     renderPhotoStrip();

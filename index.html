@@ -147,10 +147,16 @@
         <button class="text-btn" id="btnAddReminder2" style="align-self:flex-end;padding:4px 0 10px">＋ 再加一個提醒時間</button>
 
         <div class="form-row form-col">
-          <span class="form-label">照片</span>
+          <span class="form-label">網址</span>
+          <input type="url" id="evUrl" placeholder="https://...">
+        </div>
+
+        <div class="form-row form-col">
+          <span class="form-label">附件(照片/檔案)</span>
           <div class="photo-strip" id="photoStrip">
-            <label class="photo-add">＋<input type="file" id="evPhotoInput" accept="image/*" multiple hidden></label>
+            <label class="photo-add">＋<input type="file" id="evPhotoInput" multiple hidden></label>
           </div>
+          <p class="hint">檔案較大時只會存在這台裝置,不會同步到雲端(上限約 650KB)。</p>
         </div>
 
         <div class="form-row form-col">

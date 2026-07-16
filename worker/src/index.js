@@ -73,10 +73,12 @@ async function run(env) {
       const pushSub = { endpoint: sub.data.endpoint, p256dh: sub.data.p256dh, auth: sub.data.auth };
       for (const { ev, occ } of dueList) {
         const timeStr = ev.allDay ? '今天' : timeFmt.format(occ.start);
+        const payload = { title: '📅 ' + ev.title, body: timeStr };
+        console.log('準備發送 payload=', JSON.stringify(payload));
         try {
           await sendWebPush(
             pushSub,
-            { title: '📅 ' + ev.title, body: timeStr },
+            payload,
             { vapidPublicKey: env.VAPID_PUBLIC_KEY, vapidPrivateKey: env.VAPID_PRIVATE_KEY, vapidSubject: env.VAPID_SUBJECT, ttl: 3600 }
           );
           console.log('推播成功', sub.id, ev.title);

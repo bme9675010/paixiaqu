@@ -75,6 +75,20 @@ function decodeFields(fields) {
   return out;
 }
 
+function encodeValue(v) {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === 'string') return { stringValue: v };
+  if (typeof v === 'boolean') return { booleanValue: v };
+  if (typeof v === 'number') return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(encodeValue) } };
+  return { mapValue: { fields: encodeFields(v) } };
+}
+function encodeFields(obj) {
+  const out = {};
+  for (const k of Object.keys(obj)) out[k] = encodeValue(obj[k]);
+  return out;
+}
+
 export function makeFirestoreClient(serviceAccount, projectId) {
   const base = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
 
@@ -109,6 +123,16 @@ export function makeFirestoreClient(serviceAccount, projectId) {
     async deleteDoc(path) {
       const resp = await authedFetch(`${base}/${path}`, { method: 'DELETE' });
       if (!resp.ok && resp.status !== 404) throw new Error(`deleteDoc ${path} 失敗: ${await resp.text()}`);
+    },
+
+    // 建立/覆寫一份文件(全量覆蓋,不是 merge)
+    async putDoc(path, obj) {
+      const resp = await authedFetch(`${base}/${path}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: encodeFields(obj) }),
+      });
+      if (!resp.ok) throw new Error(`putDoc ${path} 失敗: ${await resp.text()}`);
     },
   };
 }

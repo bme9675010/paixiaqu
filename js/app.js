@@ -782,6 +782,7 @@ function startReminderLoop() {
 }
 function checkReminders() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (sync.cloudPushActive()) return; // 雲端推播已經接管,避免本機再跳一次重複通知
   const now = Date.now();
   const soon = occurrencesInRange(new Date(now - 60000), new Date(now + 26 * 3600000));
   for (const o of soon) {

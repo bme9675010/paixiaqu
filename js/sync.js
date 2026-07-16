@@ -194,6 +194,12 @@ export const sync = {
     } catch (e) { say('推播訂閱失敗:' + (e.message || e)); }
   },
 
+  // 雲端推播是否已經接管提醒(此時本機不該再自己跳一次,避免重複通知)
+  cloudPushActive() {
+    const c = window.APP_CONFIG || {};
+    return !!(fb && groupId && c.VAPID_PUBLIC_KEY && 'Notification' in window && Notification.permission === 'granted');
+  },
+
   async pushCalendar(cal) {
     if (!fb || !groupId) return;
     try {

@@ -51,14 +51,19 @@ async function run(env) {
 
     const dueList = [];
     for (const { id: eventId, data: ev } of events) {
-      if (ev.deleted || ev.reminder === null || ev.reminder === undefined) continue;
+      if (ev.deleted) continue;
+      const slots = [['reminder', ev.reminder], ['reminder2', ev.reminder2]]
+        .filter(([, mins]) => mins !== null && mins !== undefined);
+      if (!slots.length) continue;
       const occs = occurrencesInRange(ev, rangeStart, rangeEnd);
       for (const occ of occs) {
-        const fireAt = occ.start.getTime() - ev.reminder * 60000;
-        if (fireAt <= now.getTime() && fireAt > now.getTime() - WINDOW_MS) {
-          const key = `${eventId}_${occ.start.getTime()}`;
-          if (notifiedIds.has(key)) continue; // 這筆提醒已經送過了,跳過
-          dueList.push({ ev, occ, key });
+        for (const [slotName, mins] of slots) {
+          const fireAt = occ.start.getTime() - mins * 60000;
+          if (fireAt <= now.getTime() && fireAt > now.getTime() - WINDOW_MS) {
+            const key = `${eventId}_${occ.start.getTime()}_${slotName}`;
+            if (notifiedIds.has(key)) continue; // 這筆提醒已經送過了,跳過
+            dueList.push({ ev, occ, key });
+          }
         }
       }
     }

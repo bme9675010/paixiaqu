@@ -227,7 +227,7 @@ export const sync = {
         calendarId: ev.calendarId, title: ev.title, allDay: ev.allDay,
         startAt: ev.start, endAt: ev.end,
         repeat: ev.repeat || 'none', exdates: ev.exdates || [],
-        reminder: ev.reminder, notes: ev.notes || '',
+        reminder: ev.reminder, reminder2: ev.reminder2 ?? null, notes: ev.notes || '',
         photoIds: ev.photos || [],
         deleted: !!ev.deleted, updatedAtMs: ev.updatedAt,
       });
@@ -270,7 +270,7 @@ export const sync = {
           await db.put('events', {
             id: d.id, calendarId: re.calendarId, title: re.title,
             allDay: re.allDay, start: re.startAt, end: re.endAt,
-            repeat: re.repeat, exdates: re.exdates || [], reminder: re.reminder, notes: re.notes,
+            repeat: re.repeat, exdates: re.exdates || [], reminder: re.reminder, reminder2: re.reminder2 ?? null, notes: re.notes,
             photos: photoIds, deleted: re.deleted, updatedAt: re.updatedAtMs,
           });
         }

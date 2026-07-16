@@ -485,6 +485,10 @@ async function openEventForm(ev = null, preset = null, occMs = null) {
 
   $('evRepeat').value = base.repeat || 'none';
   $('evReminder').value = (base.reminder === null || base.reminder === undefined) ? '' : String(base.reminder);
+  const hasReminder2 = base.reminder2 !== null && base.reminder2 !== undefined;
+  $('evReminder2').value = hasReminder2 ? String(base.reminder2) : '';
+  $('reminder2Row').hidden = !hasReminder2;
+  $('btnAddReminder2').hidden = hasReminder2;
   $('evNotes').value = base.notes || '';
 
   if (ev && ev.photos) {
@@ -567,12 +571,14 @@ async function saveEvent() {
   }
 
   const reminderVal = $('evReminder').value;
+  const reminder2Val = $('reminder2Row').hidden ? '' : $('evReminder2').value;
   const formVals = {
     calendarId,
     title,
     allDay,
     repeat: $('evRepeat').value,
     reminder: reminderVal === '' ? null : Number(reminderVal),
+    reminder2: reminder2Val === '' ? null : Number(reminder2Val),
     notes: $('evNotes').value.trim(),
     photos: photoIds,
   };
@@ -786,20 +792,23 @@ function checkReminders() {
   const now = Date.now();
   const soon = occurrencesInRange(new Date(now - 60000), new Date(now + 26 * 3600000));
   for (const o of soon) {
-    if (o.ev.reminder === null || o.ev.reminder === undefined) continue;
-    const fireAt = o.start.getTime() - o.ev.reminder * 60000;
-    const key = o.ev.id + '|' + o.start.getTime();
-    if (fireAt <= now && fireAt > now - 90000 && !notified.has(key)) {
-      notified.add(key);
-      const timeStr = o.ev.allDay ? '今天' : fmtHM(o.start);
-      try {
-        if (navigator.serviceWorker && navigator.serviceWorker.ready) {
-          navigator.serviceWorker.ready.then(reg =>
-            reg.showNotification('📅 ' + o.ev.title, { body: `${timeStr} · ${calById(o.ev.calendarId).name}`, tag: key }));
-        } else {
-          new Notification('📅 ' + o.ev.title, { body: `${timeStr} · ${calById(o.ev.calendarId).name}` });
-        }
-      } catch (e) { /* 通知失敗不影響主流程 */ }
+    for (const slot of ['reminder', 'reminder2']) {
+      const mins = o.ev[slot];
+      if (mins === null || mins === undefined) continue;
+      const fireAt = o.start.getTime() - mins * 60000;
+      const key = o.ev.id + '|' + o.start.getTime() + '|' + slot;
+      if (fireAt <= now && fireAt > now - 90000 && !notified.has(key)) {
+        notified.add(key);
+        const timeStr = o.ev.allDay ? '今天' : fmtHM(o.start);
+        try {
+          if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+            navigator.serviceWorker.ready.then(reg =>
+              reg.showNotification('📅 ' + o.ev.title, { body: `${timeStr} · ${calById(o.ev.calendarId).name}`, tag: key }));
+          } else {
+            new Notification('📅 ' + o.ev.title, { body: `${timeStr} · ${calById(o.ev.calendarId).name}` });
+          }
+        } catch (e) { /* 通知失敗不影響主流程 */ }
+      }
     }
   }
 }
@@ -1007,6 +1016,10 @@ function bindUI() {
   $('btnEventSave').onclick = saveEvent;
   $('btnEventDelete').onclick = deleteEvent;
   $('evAllDay').onchange = toggleTimeInputs;
+  $('btnAddReminder2').onclick = () => {
+    $('reminder2Row').hidden = false;
+    $('btnAddReminder2').hidden = true;
+  };
   $('evStartDate').onchange = () => {
     // 開始日期改變時,結束日期跟著調整
     if ($('evEndDate').value < $('evStartDate').value) $('evEndDate').value = $('evStartDate').value;

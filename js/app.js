@@ -1032,8 +1032,7 @@ function bindUI() {
     if (!('Notification' in window)) { toast('此瀏覽器不支援通知'); return; }
     const perm = await Notification.requestPermission();
     if (perm === 'granted') {
-      toast('通知已開啟 🔔');
-      await sync.subscribePush(); // 有雲端同步 + 已加入群組時,順便訂閱「App 沒開也通知」
+      await sync.subscribePush(true); // 有雲端同步 + 已加入群組時,順便訂閱「App 沒開也通知」;verbose 顯示失敗原因
       renderSettings();
     } else toast('通知未開啟');
   };

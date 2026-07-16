@@ -168,10 +168,14 @@ export const sync = {
   },
 
   // 訂閱雲端推播(App 沒開也會通知);需要已授權通知權限 + 已設定 VAPID 金鑰 + 已加入群組
-  async subscribePush() {
-    if (!fb || !groupId) return;
+  // verbose=true 時,失敗原因會用 toast 顯示出來(從設定頁按鈕手動觸發時用,方便回報問題)
+  async subscribePush(verbose) {
+    const say = (msg) => { console.warn(msg); if (verbose) toast(msg); };
+    if (!fb || !groupId) { if (verbose) say('尚未加入家庭群組,無法訂閱雲端推播'); return; }
     const c = window.APP_CONFIG || {};
-    if (!c.VAPID_PUBLIC_KEY || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    if (!c.VAPID_PUBLIC_KEY) { say('未設定 VAPID 金鑰'); return; }
+    if (!('serviceWorker' in navigator)) { say('此瀏覽器不支援 Service Worker'); return; }
+    if (!('PushManager' in window)) { say('此瀏覽器/情境不支援推播(iPhone 請確認是從主畫面圖示開啟 App,不是 Safari 分頁)'); return; }
     try {
       const reg = await navigator.serviceWorker.ready;
       let sub = await reg.pushManager.getSubscription();
@@ -186,7 +190,8 @@ export const sync = {
       await setDoc(doc(fb.fs, 'groups', groupId, 'pushSubscriptions', fb.uid), {
         endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth, updatedAt: Date.now(),
       });
-    } catch (e) { console.warn('推播訂閱失敗', e); }
+      if (verbose) toast('雲端推播訂閱成功 ✅');
+    } catch (e) { say('推播訂閱失敗:' + (e.message || e)); }
   },
 
   async pushCalendar(cal) {

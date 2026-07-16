@@ -1,4 +1,4 @@
-import webpush from 'web-push';
+import { sendWebPush } from './webpush.js';
 import { makeFirestoreClient } from './firestore.js';
 import { occurrencesInRange } from './occurrences.js';
 
@@ -18,8 +18,6 @@ export default {
 async function run(env) {
   const serviceAccount = JSON.parse(env.GCP_SERVICE_ACCOUNT_JSON);
   const fs = makeFirestoreClient(serviceAccount, env.FIREBASE_PROJECT_ID);
-
-  webpush.setVapidDetails(env.VAPID_SUBJECT, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
 
   const now = new Date();
   const rangeStart = new Date(now.getTime() - WINDOW_MS - 24 * 3600000); // 提醒最長可設 1 天前,往前多抓一點確保涵蓋
@@ -56,19 +54,20 @@ async function run(env) {
     if (!dueList.length) continue;
 
     for (const sub of subs) {
-      const pushSub = {
-        endpoint: sub.data.endpoint,
-        keys: { p256dh: sub.data.p256dh, auth: sub.data.auth },
-      };
+      const pushSub = { endpoint: sub.data.endpoint, p256dh: sub.data.p256dh, auth: sub.data.auth };
       for (const { ev, occ } of dueList) {
         const timeStr = ev.allDay
           ? '今天'
           : `${String(occ.start.getHours()).padStart(2, '0')}:${String(occ.start.getMinutes()).padStart(2, '0')}`;
-        const payload = JSON.stringify({ title: '📅 ' + ev.title, body: `${timeStr}` });
         try {
-          await webpush.sendNotification(pushSub, payload, { TTL: 3600 });
+          await sendWebPush(
+            pushSub,
+            { title: '📅 ' + ev.title, body: timeStr },
+            { vapidPublicKey: env.VAPID_PUBLIC_KEY, vapidPrivateKey: env.VAPID_PRIVATE_KEY, vapidSubject: env.VAPID_SUBJECT, ttl: 3600 }
+          );
+          console.log('推播成功', sub.id, ev.title);
         } catch (e) {
-          console.error('推播失敗', sub.id, e.statusCode, e.body);
+          console.error('推播失敗', sub.id, 'statusCode=', e.statusCode, 'message=', e.message);
           if (e.statusCode === 404 || e.statusCode === 410) {
             // 訂閱失效(裝置解除安裝/清除資料)→ 清掉,避免下次繼續打失敗
             await fs.deleteDoc(`groups/${gid}/pushSubscriptions/${sub.id}`).catch(() => {});

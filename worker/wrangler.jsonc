@@ -4,7 +4,6 @@
   "main": "src/index.js",
   "account_id": "a28894298c8f3a9446464c751ee15dfa",
   "compatibility_date": "2024-11-01",
-  "compatibility_flags": ["nodejs_compat"],
   "triggers": {
     "crons": ["*/5 * * * *"]
   },

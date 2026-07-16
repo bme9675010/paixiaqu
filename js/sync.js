@@ -13,6 +13,13 @@ let unsubEvents = null, unsubCalendars = null;
 
 const $ = id => document.getElementById(id);
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
 function configured() {
   const c = window.APP_CONFIG || {};
   return !!(c.FIREBASE_API_KEY && c.FIREBASE_PROJECT_ID)
@@ -54,6 +61,7 @@ export const sync = {
       if (groupId) {
         await this.pullAll();
         this.subscribe();
+        if ('Notification' in window && Notification.permission === 'granted') this.subscribePush();
       }
       this.renderStatus();
     } catch (e) {
@@ -155,7 +163,30 @@ export const sync = {
     await this.pullAll();
     this.subscribe();
     this.renderStatus();
+    if ('Notification' in window && Notification.permission === 'granted') this.subscribePush();
     if (onRemoteChange) onRemoteChange();
+  },
+
+  // 訂閱雲端推播(App 沒開也會通知);需要已授權通知權限 + 已設定 VAPID 金鑰 + 已加入群組
+  async subscribePush() {
+    if (!fb || !groupId) return;
+    const c = window.APP_CONFIG || {};
+    if (!c.VAPID_PUBLIC_KEY || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(c.VAPID_PUBLIC_KEY),
+        });
+      }
+      const json = sub.toJSON();
+      const { doc, setDoc } = fb.m;
+      await setDoc(doc(fb.fs, 'groups', groupId, 'pushSubscriptions', fb.uid), {
+        endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth, updatedAt: Date.now(),
+      });
+    } catch (e) { console.warn('推播訂閱失敗', e); }
   },
 
   async pushCalendar(cal) {

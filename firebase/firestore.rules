@@ -33,6 +33,13 @@ service cloud.firestore {
       match /photos/{photoId} {
         allow read, write: if isMember(groupId);
       }
+
+      // 推播訂閱:每台裝置只能寫自己那筆(以 uid 為文件 id)
+      match /pushSubscriptions/{uid} {
+        allow read: if false; // 只有伺服器(service account,不受規則限制)需要讀
+        allow create, update: if request.auth != null && request.auth.uid == uid && isMember(groupId);
+        allow delete: if request.auth != null && request.auth.uid == uid;
+      }
     }
   }
 }

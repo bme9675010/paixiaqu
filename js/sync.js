@@ -98,7 +98,7 @@ export const sync = {
       }
       const ref = doc(collection(fb.fs, 'groups'));
       await setDoc(ref, { inviteCode: code, name: '我的家庭', createdAt: Date.now() });
-      await this._joined(ref.id, code);
+      await this._joined(ref.id, code, false);
       toast('群組建立成功 🎉');
     } catch (e) { toast('建立失敗:' + e.message); }
   },
@@ -110,12 +110,12 @@ export const sync = {
       const snap = await getDocs(query(collection(fb.fs, 'groups'), where('inviteCode', '==', code.toUpperCase())));
       if (snap.empty) throw new Error('找不到這個邀請碼');
       const d = snap.docs[0];
-      await this._joined(d.id, d.data().inviteCode);
+      await this._joined(d.id, d.data().inviteCode, true);
       toast('加入成功 🎉');
     } catch (e) { toast('加入失敗:' + e.message); }
   },
 
-  async _joined(gid, code) {
+  async _joined(gid, code, isJoin) {
     groupId = gid;
     await db.setMeta('groupId', gid);
     await db.setMeta('groupCode', code);
@@ -123,11 +123,35 @@ export const sync = {
     await setDoc(doc(fb.fs, 'groups', gid, 'members', fb.uid), {
       name: (await db.getMeta('memberName')) || '家人', joinedAt: Date.now(),
     });
-    // 把本地既有資料推上雲端
-    const cals = await db.getAll('calendars');
-    const evs = await db.getAll('events');
-    for (const c of cals) await this.pushCalendar(c);
-    for (const e of evs) await this.pushEvent(e);
+
+    if (isJoin) {
+      // 加入既有群組:先記住加入前本機的行事曆/行程,拉完雲端資料後
+      // 把「本機自動建立、從未使用過」的預設行事曆(家庭/工作/個人)直接丟棄,
+      // 避免跟群組既有的預設行事曆重複;真的有用到的資料才推上雲端保留。
+      const DEFAULT_NAMES = ['家庭', '工作', '個人'];
+      const preJoinCals = await db.getAll('calendars');
+      const preJoinCalIds = new Set(preJoinCals.filter(c => !c.deleted).map(c => c.id));
+      const preJoinEvents = await db.getAll('events');
+      const usedCalIds = new Set(preJoinEvents.filter(e => !e.deleted).map(e => e.calendarId));
+
+      await this.pullAll();
+
+      for (const c of preJoinCals) {
+        if (!c.deleted && DEFAULT_NAMES.includes(c.name) && !usedCalIds.has(c.id)) {
+          await db.del('calendars', c.id);
+        }
+      }
+      const stillLocalCals = (await db.getAll('calendars')).filter(c => preJoinCalIds.has(c.id) && !c.deleted);
+      for (const c of stillLocalCals) await this.pushCalendar(c);
+      for (const e of preJoinEvents) if (!e.deleted) await this.pushEvent(e);
+    } else {
+      // 建立新群組:本機既有資料就是這個群組的初始資料
+      const cals = await db.getAll('calendars');
+      const evs = await db.getAll('events');
+      for (const c of cals) await this.pushCalendar(c);
+      for (const e of evs) await this.pushEvent(e);
+    }
+
     await this.pullAll();
     this.subscribe();
     this.renderStatus();

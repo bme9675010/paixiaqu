@@ -13,6 +13,6 @@
   "vars": {
     "FIREBASE_PROJECT_ID": "scheduling-8f743",
     "VAPID_PUBLIC_KEY": "BFIL3kWWfVqmHrPpQenjAgOHjqWvh4v_Q4pcwXzp2kEXG_eqU3ggpdWRjaayMBE8jucKoI0gcgiWSempEfGOmuY",
-    "VAPID_SUBJECT": "mailto:bme9675010@gmail.com"
+    "VAPID_SUBJECT": "https://github.com/bme9675010"
   }
 }

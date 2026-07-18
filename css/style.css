@@ -319,6 +319,58 @@ input[type=text] { -webkit-user-select: text; user-select: text; }
   font-size: 14px; font-weight: 600; cursor: pointer;
 }
 
+/* ── 待辦清單 ── */
+.todo-item {
+  display: flex; align-items: center; gap: 10px; background: var(--surface);
+  padding: 12px 14px; border-radius: 12px; margin-bottom: 8px; box-shadow: var(--shadow);
+}
+.todo-check {
+  width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line);
+  flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; color: #fff; background: var(--surface);
+}
+.todo-check.done { background: var(--accent); border-color: var(--accent); }
+.todo-text { flex: 1; font-size: 15px; word-break: break-word; }
+.todo-text.done { text-decoration: line-through; color: var(--text2); }
+.todo-del { border: none; background: none; color: var(--text2); font-size: 16px; cursor: pointer; padding: 4px; flex-shrink: 0; }
+
+/* ── 行程詳情:建立者/參加者/留言 ── */
+.detail-meta { font-size: 12px; color: var(--text2); margin: 4px 0 10px; }
+.attendee-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.attendee-chip {
+  font-size: 12px; padding: 4px 10px; border-radius: 12px; background: var(--surface2); color: var(--text);
+}
+.attendee-toggle {
+  font-size: 13px; padding: 6px 14px; border-radius: 12px; border: 1.5px solid var(--accent);
+  background: none; color: var(--accent); cursor: pointer; font-weight: 600;
+}
+.attendee-toggle.joined { background: var(--accent); color: #fff; }
+
+.comments-section { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+.comments-title { font-size: 13px; font-weight: 700; color: var(--text2); margin-bottom: 8px; }
+.comment-row { display: flex; gap: 8px; margin-bottom: 10px; align-items: flex-start; }
+.comment-avatar {
+  width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff;
+  font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.comment-body { flex: 1; min-width: 0; }
+.comment-name { font-size: 12px; font-weight: 600; color: var(--text2); }
+.comment-text { font-size: 14px; word-break: break-word; -webkit-user-select: text; user-select: text; }
+.comment-del { border: none; background: none; color: var(--text2); font-size: 12px; cursor: pointer; flex-shrink: 0; }
+.comment-input-row { display: flex; gap: 8px; margin-top: 8px; }
+.comment-input-row input {
+  flex: 1; border: none; background: var(--surface2); color: var(--text);
+  padding: 9px 12px; border-radius: 18px; font-size: 14px; -webkit-user-select: text; user-select: text;
+}
+.comment-send { border: none; background: var(--accent); color: #fff; border-radius: 50%; width: 34px; height: 34px; flex-shrink: 0; font-size: 15px; cursor: pointer; }
+
+/* ── 週/日檢視拖曳改時間 ── */
+.tl-event.dragging { opacity: .85; box-shadow: 0 6px 18px rgba(0,0,0,.35); z-index: 20; transition: none !important; }
+.drag-time-badge {
+  position: fixed; background: var(--text); color: var(--bg); font-size: 13px; font-weight: 700;
+  padding: 4px 10px; border-radius: 10px; z-index: 999; pointer-events: none; white-space: nowrap;
+}
+
 /* ── 詳情 ── */
 .detail-title { font-size: 20px; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
 .detail-cal { font-size: 12px; color: #fff; padding: 2px 8px; border-radius: 10px; }

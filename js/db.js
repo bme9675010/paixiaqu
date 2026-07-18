@@ -1,6 +1,6 @@
 // 本地資料庫 (IndexedDB) — 行事曆 / 行程 / 照片
 const DB_NAME = 'paixiaqu';
-const DB_VER = 1;
+const DB_VER = 2;
 
 let _db = null;
 
@@ -17,6 +17,7 @@ function openDB() {
       }
       if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
+      if (!db.objectStoreNames.contains('todos')) db.createObjectStore('todos', { keyPath: 'id' });
     };
     req.onsuccess = () => { _db = req.result; resolve(_db); };
     req.onerror = () => reject(req.error);

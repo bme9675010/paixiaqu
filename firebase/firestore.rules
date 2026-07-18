@@ -28,9 +28,20 @@ service cloud.firestore {
 
       match /events/{eventId} {
         allow read, write: if isMember(groupId);
+
+        // 行程留言:群組成員都能看,只有本人能改/刪自己的留言
+        match /comments/{commentId} {
+          allow read: if isMember(groupId);
+          allow create: if isMember(groupId) && request.resource.data.uid == request.auth.uid;
+          allow update, delete: if isMember(groupId) && resource.data.uid == request.auth.uid;
+        }
       }
 
       match /photos/{photoId} {
+        allow read, write: if isMember(groupId);
+      }
+
+      match /todos/{todoId} {
         allow read, write: if isMember(groupId);
       }
 

@@ -9,7 +9,8 @@ let fb = null; // { auth, fs, uid, mods:{...firestore funcs} }
 let groupId = null;
 let onRemoteChange = null;
 let toast = () => {};
-let unsubEvents = null, unsubCalendars = null;
+let unsubEvents = null, unsubCalendars = null, unsubTodos = null;
+let memberNames = {}; // uid -> 暱稱 快取
 
 const $ = id => document.getElementById(id);
 
@@ -57,6 +58,7 @@ export const sync = {
         user = cred.user;
       }
       fb = { auth, fs, uid: user.uid, m: { ...authMod, ...fsMod } };
+      memberNames = (await db.getMeta('memberNames')) || {};
       groupId = await db.getMeta('groupId');
       if (groupId) {
         await this.pullAll();
@@ -152,12 +154,16 @@ export const sync = {
       const stillLocalCals = (await db.getAll('calendars')).filter(c => preJoinCalIds.has(c.id) && !c.deleted);
       for (const c of stillLocalCals) await this.pushCalendar(c);
       for (const e of preJoinEvents) if (!e.deleted) await this.pushEvent(e);
+      const preJoinTodos = await db.getAll('todos');
+      for (const t of preJoinTodos) if (!t.deleted) await this.pushTodo(t);
     } else {
       // 建立新群組:本機既有資料就是這個群組的初始資料
       const cals = await db.getAll('calendars');
       const evs = await db.getAll('events');
+      const tds = await db.getAll('todos');
       for (const c of cals) await this.pushCalendar(c);
       for (const e of evs) await this.pushEvent(e);
+      for (const t of tds) await this.pushTodo(t);
     }
 
     await this.pullAll();
@@ -200,6 +206,11 @@ export const sync = {
     return !!(fb && groupId && c.VAPID_PUBLIC_KEY && 'Notification' in window && Notification.permission === 'granted');
   },
 
+  // 是否已加入家人共享(建立者/參加者/留言 這些功能都要靠這個)
+  cloudActive() { return !!(fb && groupId); },
+  getUid() { return fb ? fb.uid : null; },
+  getMemberName(uid) { return memberNames[uid] || '家人'; },
+
   async pushCalendar(cal) {
     if (!fb || !groupId) return;
     try {
@@ -231,9 +242,40 @@ export const sync = {
         repeat: ev.repeat || 'none', exdates: ev.exdates || [],
         reminder: ev.reminder, reminder2: ev.reminder2 ?? null, url: ev.url || '', notes: ev.notes || '',
         photoIds: ev.photos || [],
+        createdBy: ev.createdBy || fb.uid, attendees: ev.attendees || [],
         deleted: !!ev.deleted, updatedAtMs: ev.updatedAt,
       });
     } catch (e) { console.warn('push event 失敗', e); }
+  },
+
+  async pushTodo(t) {
+    if (!fb || !groupId) return;
+    try {
+      const { doc, setDoc } = fb.m;
+      await setDoc(doc(fb.fs, 'groups', groupId, 'todos', t.id), {
+        text: t.text, done: !!t.done, deleted: !!t.deleted, updatedAtMs: t.updatedAt,
+      });
+    } catch (e) { console.warn('push todo 失敗', e); }
+  },
+
+  // 行程留言:即時監聽,不落地存本機(需要即時線上才看得到,離線時空白)
+  listenComments(eventId, cb) {
+    if (!fb || !groupId) { cb([]); return () => {}; }
+    const { collection, query, orderBy, onSnapshot } = fb.m;
+    const q = query(collection(fb.fs, 'groups', groupId, 'events', eventId, 'comments'), orderBy('createdAt', 'asc'));
+    return onSnapshot(q, snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => cb([]));
+  },
+  async postComment(eventId, text) {
+    if (!fb || !groupId) return;
+    const { doc, collection, setDoc } = fb.m;
+    const name = (await db.getMeta('memberName')) || '家人';
+    const ref = doc(collection(fb.fs, 'groups', groupId, 'events', eventId, 'comments'));
+    await setDoc(ref, { uid: fb.uid, name, text, createdAt: Date.now() });
+  },
+  async deleteComment(eventId, commentId) {
+    if (!fb || !groupId) return;
+    const { doc, deleteDoc } = fb.m;
+    await deleteDoc(doc(fb.fs, 'groups', groupId, 'events', eventId, 'comments', commentId));
   },
 
   // 從雲端拉全部資料,以 updatedAt 較新者為準
@@ -274,8 +316,24 @@ export const sync = {
             id: d.id, calendarId: re.calendarId, title: re.title,
             allDay: re.allDay, start: re.startAt, end: re.endAt,
             repeat: re.repeat, exdates: re.exdates || [], reminder: re.reminder, reminder2: re.reminder2 ?? null, url: re.url || '', notes: re.notes,
-            photos: photoIds, deleted: re.deleted, updatedAt: re.updatedAtMs,
+            photos: photoIds, createdBy: re.createdBy || null, attendees: re.attendees || [],
+            deleted: re.deleted, updatedAt: re.updatedAtMs,
           });
+        }
+      }
+
+      const memSnap = await getDocs(collection(fb.fs, 'groups', groupId, 'members'));
+      const names = {};
+      for (const d of memSnap.docs) names[d.id] = d.data().name || '家人';
+      memberNames = names;
+      await db.setMeta('memberNames', names);
+
+      const todoSnap = await getDocs(collection(fb.fs, 'groups', groupId, 'todos'));
+      for (const d of todoSnap.docs) {
+        const rt = d.data();
+        const local = await db.get('todos', d.id);
+        if (!local || rt.updatedAtMs > local.updatedAt) {
+          await db.put('todos', { id: d.id, text: rt.text, done: rt.done, deleted: rt.deleted, updatedAt: rt.updatedAtMs });
         }
       }
     } catch (e) { console.warn('pull 失敗', e); }
@@ -285,7 +343,7 @@ export const sync = {
   subscribe() {
     if (!fb || !groupId || unsubEvents) return;
     const { collection, onSnapshot } = fb.m;
-    let first1 = true, first2 = true;
+    let first1 = true, first2 = true, first3 = true;
     unsubEvents = onSnapshot(collection(fb.fs, 'groups', groupId, 'events'), async () => {
       if (first1) { first1 = false; return; } // 略過初次訂閱時的既有快照(pullAll 已處理過)
       await this.pullAll();
@@ -293,6 +351,11 @@ export const sync = {
     });
     unsubCalendars = onSnapshot(collection(fb.fs, 'groups', groupId, 'calendars'), async () => {
       if (first2) { first2 = false; return; }
+      await this.pullAll();
+      if (onRemoteChange) onRemoteChange();
+    });
+    unsubTodos = onSnapshot(collection(fb.fs, 'groups', groupId, 'todos'), async () => {
+      if (first3) { first3 = false; return; }
       await this.pullAll();
       if (onRemoteChange) onRemoteChange();
     });

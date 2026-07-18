@@ -19,6 +19,8 @@ let editingOccStart = null;   // 編輯中的重複行程「這一次」的開�
 let editingPhotos = [];       // 編輯中的照片 [{id, data}]
 let editingCal = null;        // 編輯中的行事曆
 let calFormColor = PALETTE[0];
+let todos = [];
+let unsubDetailComments = null; // 行程詳情開啟中的留言即時監聽
 
 // ── 日期工具 ──
 const fmtYMD = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -92,6 +94,7 @@ async function init() {
     calendars = await db.getAll('calendars');
   }
   events = await db.getAll('events');
+  todos = await db.getAll('todos');
 
   bindUI();
   render();
@@ -102,8 +105,10 @@ async function init() {
     onRemoteChange: async () => {
       calendars = await db.getAll('calendars');
       events = await db.getAll('events');
+      todos = await db.getAll('todos');
       render();
       renderSettings();
+      renderTodoList();
     },
     toast,
   });
@@ -310,6 +315,7 @@ function renderWeek() {
     };
   });
   bindEmptySlotTap($('weekGrid'));
+  bindDragReschedule($('weekGrid'));
 
   // 捲到早上 7 點,並水平捲到目前檢視的日子
   requestAnimationFrame(() => {
@@ -353,6 +359,7 @@ function renderDay() {
   $('dayGrid').querySelectorAll('.tl-event').forEach(el => { el.onclick = () => showDetail(el.dataset.id, +el.dataset.occ); });
   $('dayAllday').querySelectorAll('.allday-chip').forEach(el => { el.onclick = () => showDetail(el.dataset.id, +el.dataset.occ); });
   bindEmptySlotTap($('dayGrid'));
+  bindDragReschedule($('dayGrid'));
   requestAnimationFrame(() => { $('dayScroll').scrollTop = 7 * HOUR_H; });
 }
 
@@ -367,6 +374,134 @@ function bindEmptySlotTap(root) {
       openEventForm(null, { date: new Date(y, m - 1, dd), hour });
     };
   });
+}
+
+// 長按拖曳行程改變時間(週/日檢視,同一天內垂直拖動,15 分鐘為單位)
+function bindDragReschedule(root) {
+  const LONG_PRESS_MS = 350;
+  const MOVE_CANCEL_PX = 8;
+  const SNAP_PX = HOUR_H / 4; // 15 分鐘
+
+  root.querySelectorAll('.tl-event').forEach(el => {
+    const body = el.closest('.tl-body');
+    if (!body) return;
+    let timer = null, dragging = false, startY = 0, startTop = 0, moved = false, justDragged = false;
+
+    const endDrag = () => {
+      clearTimeout(timer);
+      timer = null;
+      if (dragging) {
+        el.classList.remove('dragging');
+        const badge = document.getElementById('dragTimeBadge');
+        if (badge) badge.remove();
+      }
+      dragging = false;
+    };
+
+    el.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      startY = e.touches[0].clientY;
+      startTop = parseFloat(el.style.top) || 0;
+      moved = false;
+      timer = setTimeout(() => {
+        dragging = true;
+        el.classList.add('dragging');
+        if (navigator.vibrate) navigator.vibrate(15);
+      }, LONG_PRESS_MS);
+    }, { passive: true });
+
+    el.addEventListener('touchmove', (e) => {
+      const dy = e.touches[0].clientY - startY;
+      if (!dragging) {
+        if (Math.abs(dy) > MOVE_CANCEL_PX) { clearTimeout(timer); timer = null; }
+        return;
+      }
+      e.preventDefault();
+      moved = true;
+      let newTop = startTop + dy;
+      newTop = Math.round(newTop / SNAP_PX) * SNAP_PX;
+      newTop = Math.max(0, Math.min(body.offsetHeight - el.offsetHeight, newTop));
+      el.style.top = newTop + 'px';
+      const mins = Math.round(newTop / HOUR_H * 60);
+      let badge = document.getElementById('dragTimeBadge');
+      if (!badge) {
+        badge = document.createElement('div');
+        badge.id = 'dragTimeBadge';
+        badge.className = 'drag-time-badge';
+        document.body.appendChild(badge);
+      }
+      badge.textContent = `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+      const rect = el.getBoundingClientRect();
+      badge.style.left = Math.min(window.innerWidth - 60, rect.right + 8) + 'px';
+      badge.style.top = rect.top + 'px';
+    }, { passive: false });
+
+    el.addEventListener('touchend', async () => {
+      const wasDragging = dragging, wasMoved = moved;
+      justDragged = wasDragging && wasMoved;
+      endDrag();
+      if (!wasDragging || !wasMoved) return;
+      const newTop = parseFloat(el.style.top);
+      const newMinutesOfDay = Math.round(newTop / HOUR_H * 60);
+      await rescheduleEvent(el.dataset.id, +el.dataset.occ, newMinutesOfDay);
+    });
+    el.addEventListener('touchcancel', endDrag);
+
+    // 拖曳結束後緊接著的那次 click 要吃掉,避免誤開詳情頁
+    el.addEventListener('click', (e) => {
+      if (justDragged) { e.preventDefault(); e.stopImmediatePropagation(); justDragged = false; }
+    }, true);
+  });
+}
+
+async function rescheduleEvent(id, occMs, newMinutesOfDay) {
+  const ev = events.find(e => e.id === id);
+  if (!ev) { render(); return; }
+  const durMs = new Date(ev.end) - new Date(ev.start);
+  const oldStart = new Date(occMs);
+  const newStart = new Date(oldStart);
+  newStart.setHours(Math.floor(newMinutesOfDay / 60), newMinutesOfDay % 60, 0, 0);
+  if (newStart.getTime() === oldStart.getTime()) { render(); return; }
+  const newEnd = new Date(newStart.getTime() + durMs);
+
+  const isRepeating = ev.repeat && ev.repeat !== 'none';
+  if (isRepeating) {
+    const scope = await choose('這是重複行程', ['只改這一次', '改變所有重複的時間']);
+    if (!scope) { render(); return; }
+    if (scope === '只改這一次') {
+      const orig = { ...ev, exdates: [...(ev.exdates || []), fmtYMD(oldStart)], updatedAt: Date.now() };
+      const single = {
+        id: db.uid(), calendarId: ev.calendarId, title: ev.title, allDay: false,
+        start: newStart.toISOString(), end: newEnd.toISOString(),
+        repeat: 'none', exdates: [], reminder: ev.reminder, reminder2: ev.reminder2 ?? null,
+        url: ev.url || '', notes: ev.notes || '', photos: ev.photos || [],
+        createdBy: ev.createdBy || sync.getUid(), attendees: ev.attendees || [],
+        deleted: false, updatedAt: Date.now(),
+      };
+      await db.put('events', orig);
+      await db.put('events', single);
+      events = await db.getAll('events');
+      sync.pushEvent(orig);
+      sync.pushEvent(single);
+      toast('已調整這一次的時間 ✅');
+    } else {
+      const origStart = new Date(ev.start);
+      origStart.setHours(newStart.getHours(), newStart.getMinutes(), 0, 0);
+      const origEnd = new Date(origStart.getTime() + durMs);
+      const updated = { ...ev, start: origStart.toISOString(), end: origEnd.toISOString(), updatedAt: Date.now() };
+      await db.put('events', updated);
+      events = await db.getAll('events');
+      sync.pushEvent(updated);
+      toast('已調整所有重複的時間 ✅');
+    }
+  } else {
+    const updated = { ...ev, start: newStart.toISOString(), end: newEnd.toISOString(), updatedAt: Date.now() };
+    await db.put('events', updated);
+    events = await db.getAll('events');
+    sync.pushEvent(updated);
+    toast('時間已更新 ✅');
+  }
+  render();
 }
 
 // ── 檢視切換 ──
@@ -402,9 +537,30 @@ function choose(title, options) {
 }
 
 // ── 行程詳情 ──
+function closeDetail() {
+  if (unsubDetailComments) { unsubDetailComments(); unsubDetailComments = null; }
+  $('detailBackdrop').classList.remove('open');
+}
+
+function renderComments(comments) {
+  const list = $('commentsList');
+  if (!list) return; // 詳情可能已經關閉
+  const myUid = sync.getUid();
+  list.innerHTML = comments.length ? comments.map(c => `
+    <div class="comment-row">
+      <div class="comment-avatar">${esc((c.name || '?').slice(0, 1))}</div>
+      <div class="comment-body">
+        <div class="comment-name">${esc(c.name || '家人')}</div>
+        <div class="comment-text">${esc(c.text)}</div>
+      </div>
+      ${c.uid === myUid ? `<button class="comment-del" data-id="${c.id}">✕</button>` : ''}
+    </div>`).join('') : '<div class="empty-hint" style="padding:6px 0">還沒有留言,說句話吧</div>';
+}
+
 async function showDetail(id, occMs) {
   const ev = events.find(e => e.id === id);
   if (!ev) return;
+  closeDetail();
   const cal = calById(ev.calendarId);
   const durMs = new Date(ev.end) - new Date(ev.start);
   const s = occMs ? new Date(occMs) : new Date(ev.start);
@@ -427,22 +583,70 @@ async function showDetail(id, occMs) {
   }
   const urlHtml = ev.url ? `<a class="link-row" href="${esc(ev.url)}" target="_blank" rel="noopener">🔗 <span>${esc(ev.url)}</span></a>` : '';
 
+  const cloudOn = sync.cloudActive();
+  const myUid = sync.getUid();
+  const attendees = ev.attendees || [];
+  const iAmIn = myUid && attendees.includes(myUid);
+  const creatorHtml = (cloudOn && ev.createdBy) ? `<div class="detail-meta">由 ${esc(sync.getMemberName(ev.createdBy))} 建立</div>` : '';
+  const attendeeHtml = cloudOn ? `
+    <div class="attendee-chips">
+      ${attendees.map(uid => `<span class="attendee-chip">${esc(sync.getMemberName(uid))}</span>`).join('')}
+      <button class="attendee-toggle ${iAmIn ? 'joined' : ''}" id="btnToggleAttend">${iAmIn ? '✓ 我會參加' : '＋ 我要參加'}</button>
+    </div>` : '';
+  const commentsHtml = cloudOn ? `
+    <div class="comments-section">
+      <div class="comments-title">💬 留言</div>
+      <div id="commentsList"></div>
+      <div class="comment-input-row">
+        <input type="text" id="commentInput" placeholder="寫留言…">
+        <button class="comment-send" id="btnCommentSend">➤</button>
+      </div>
+    </div>` : '';
+
   $('detailBody').innerHTML = `
     <div class="detail-title">${esc(ev.title)}<span class="detail-cal" style="background:${cal.color}">${esc(cal.name)}</span></div>
     <div class="detail-time">${timeStr}${repeatStr ? ' · 🔁 ' + repeatStr : ''}${ev.reminder !== null && ev.reminder !== undefined && ev.reminder !== '' ? ' · 🔔' : ''}</div>
+    ${creatorHtml}
     ${urlHtml}
     ${ev.notes ? `<div class="detail-notes">${esc(ev.notes)}</div>` : ''}
     ${photosHtml}
+    ${attendeeHtml}
     <div class="detail-actions">
       <button class="detail-close" id="btnDetailClose">關閉</button>
       <button class="detail-edit" id="btnDetailEdit">編輯</button>
-    </div>`;
+    </div>
+    ${commentsHtml}`;
   $('detailBackdrop').classList.add('open');
-  $('btnDetailClose').onclick = () => $('detailBackdrop').classList.remove('open');
+  $('btnDetailClose').onclick = closeDetail;
   $('btnDetailEdit').onclick = () => {
-    $('detailBackdrop').classList.remove('open');
+    closeDetail();
     openEventForm(ev, null, occMs);
   };
+
+  if (cloudOn) {
+    $('btnToggleAttend').onclick = async () => {
+      const idx = attendees.indexOf(myUid);
+      if (idx === -1) attendees.push(myUid); else attendees.splice(idx, 1);
+      const updated = { ...ev, attendees: [...attendees], updatedAt: Date.now() };
+      await db.put('events', updated);
+      events = await db.getAll('events');
+      sync.pushEvent(updated);
+      showDetail(id, occMs);
+    };
+    unsubDetailComments = sync.listenComments(ev.id, renderComments);
+    const sendComment = () => {
+      const text = $('commentInput').value.trim();
+      if (!text) return;
+      sync.postComment(ev.id, text);
+      $('commentInput').value = '';
+    };
+    $('btnCommentSend').onclick = sendComment;
+    $('commentInput').onkeydown = (e2) => { if (e2.key === 'Enter') sendComment(); };
+    $('commentsList').addEventListener('click', (e2) => {
+      const btn = e2.target.closest('.comment-del');
+      if (btn) sync.deleteComment(ev.id, btn.dataset.id);
+    });
+  }
 }
 
 // ── 行程表單 ──
@@ -631,6 +835,7 @@ async function saveEvent() {
       const single = {
         id: db.uid(), ...formVals, repeat: 'none',
         start: s.toISOString(), end: e.toISOString(),
+        createdBy: editingEvent.createdBy || sync.getUid(), attendees: editingEvent.attendees || [],
         deleted: false, updatedAt: Date.now(),
       };
       await db.put('events', orig);
@@ -667,6 +872,8 @@ async function saveEvent() {
     start: s.toISOString(),
     end: e.toISOString(),
     exdates: (editingEvent && editingEvent.exdates) || [],
+    createdBy: (editingEvent && editingEvent.createdBy) || sync.getUid(),
+    attendees: (editingEvent && editingEvent.attendees) || [],
     deleted: false,
     updatedAt: Date.now(),
   };
@@ -714,6 +921,55 @@ function closeEventForm() {
   editingEvent = null;
   editingOccStart = null;
   editingPhotos = [];
+}
+
+// ── 待辦清單 ──
+function renderTodoList() {
+  const list = $('todoList');
+  if (!list) return;
+  const live = todos.filter(t => !t.deleted).sort((a, b) => (a.done - b.done) || (b.updatedAt - a.updatedAt));
+  list.innerHTML = live.length ? live.map(t => `
+    <div class="todo-item" data-id="${t.id}">
+      <span class="todo-check ${t.done ? 'done' : ''}">${t.done ? '✓' : ''}</span>
+      <span class="todo-text ${t.done ? 'done' : ''}">${esc(t.text)}</span>
+      <button class="todo-del">✕</button>
+    </div>`).join('') : '<div class="empty-hint">目前沒有待辦事項</div>';
+  list.querySelectorAll('.todo-item').forEach(row => {
+    const id = row.dataset.id;
+    row.querySelector('.todo-check').onclick = () => toggleTodo(id);
+    row.querySelector('.todo-del').onclick = () => deleteTodo(id);
+  });
+}
+
+async function addTodo() {
+  const text = $('todoInput').value.trim();
+  if (!text) return;
+  const t = { id: db.uid(), text, done: false, deleted: false, updatedAt: Date.now() };
+  await db.put('todos', t);
+  todos = await db.getAll('todos');
+  sync.pushTodo(t);
+  $('todoInput').value = '';
+  renderTodoList();
+}
+
+async function toggleTodo(id) {
+  const t = todos.find(x => x.id === id);
+  if (!t) return;
+  const updated = { ...t, done: !t.done, updatedAt: Date.now() };
+  await db.put('todos', updated);
+  todos = await db.getAll('todos');
+  sync.pushTodo(updated);
+  renderTodoList();
+}
+
+async function deleteTodo(id) {
+  const t = todos.find(x => x.id === id);
+  if (!t) return;
+  const updated = { ...t, deleted: true, updatedAt: Date.now() };
+  await db.put('todos', updated);
+  todos = await db.getAll('todos');
+  sync.pushTodo(updated);
+  renderTodoList();
 }
 
 // ── 設定頁 ──
@@ -993,7 +1249,8 @@ function lunarFullLabel(d) {
 // ── 匯出 / 匯入 ──
 async function exportData() {
   const photos = await db.getAll('photos');
-  const data = { app: 'paixiaqu', version: 1, exportedAt: new Date().toISOString(), calendars, events, photos };
+  const todosData = await db.getAll('todos');
+  const data = { app: 'paixiaqu', version: 1, exportedAt: new Date().toISOString(), calendars, events, photos, todos: todosData };
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -1011,10 +1268,13 @@ async function importData(file) {
     for (const c of data.calendars) await db.put('calendars', c);
     for (const e of data.events) await db.put('events', e);
     for (const p of (data.photos || [])) await db.put('photos', p);
+    for (const t of (data.todos || [])) await db.put('todos', t);
     calendars = await db.getAll('calendars');
     events = await db.getAll('events');
+    todos = await db.getAll('todos');
     render();
     renderSettings();
+    renderTodoList();
     toast('匯入完成 ✅');
   } catch (e) {
     toast('匯入失敗:' + e.message);
@@ -1076,6 +1336,10 @@ function bindUI() {
 
   $('btnSettings').onclick = () => { renderSettings(); $('settingsPage').classList.add('open'); };
   $('btnSettingsBack').onclick = () => $('settingsPage').classList.remove('open');
+  $('btnTodo').onclick = () => { renderTodoList(); $('todoPage').classList.add('open'); };
+  $('btnTodoBack').onclick = () => $('todoPage').classList.remove('open');
+  $('btnTodoAdd').onclick = addTodo;
+  $('todoInput').onkeydown = (e) => { if (e.key === 'Enter') addTodo(); };
   $('btnAddCal').onclick = () => openCalForm();
   $('btnCalCancel').onclick = () => $('calSheetBackdrop').classList.remove('open');
   $('btnCalSave').onclick = saveCal;

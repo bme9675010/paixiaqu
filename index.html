@@ -27,6 +27,7 @@
       <button class="nav-arrow" id="btnNext">›</button>
     </div>
     <div style="display:flex;gap:6px">
+      <button class="icon-btn" id="btnTodo" title="待辦清單">✅</button>
       <button class="icon-btn" id="btnSearch" title="搜尋">🔍</button>
       <button class="icon-btn" id="btnSettings" title="設定">⚙️</button>
     </div>
@@ -189,6 +190,22 @@
         <input type="text" id="searchInput" class="input-title" placeholder="輸入關鍵字…" autocomplete="off">
         <div id="searchResults"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- 待辦清單頁 -->
+  <div class="page" id="todoPage">
+    <header class="topbar">
+      <button class="icon-btn" id="btnTodoBack">‹ 返回</button>
+      <span class="topbar-center">待辦清單</span>
+      <span style="width:60px"></span>
+    </header>
+    <div class="settings-body">
+      <div class="form-row" style="gap:8px">
+        <input type="text" id="todoInput" placeholder="輸入待辦事項…" style="flex:1" autocomplete="off">
+        <button class="icon-btn" id="btnTodoAdd">新增</button>
+      </div>
+      <div id="todoList" style="margin-top:14px"></div>
     </div>
   </div>
 

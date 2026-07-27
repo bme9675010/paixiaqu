@@ -613,6 +613,7 @@ async function showDetail(id, occMs) {
     ${attendeeHtml}
     <div class="detail-actions">
       <button class="detail-close" id="btnDetailClose">關閉</button>
+      <button class="detail-dup" id="btnDetailDup">複製</button>
       <button class="detail-edit" id="btnDetailEdit">編輯</button>
     </div>
     ${commentsHtml}`;
@@ -621,6 +622,11 @@ async function showDetail(id, occMs) {
   $('btnDetailEdit').onclick = () => {
     closeDetail();
     openEventForm(ev, null, occMs);
+  };
+  $('btnDetailDup').onclick = () => {
+    closeDetail();
+    const clone = { ...ev, start: s.toISOString(), end: e.toISOString(), exdates: [], createdBy: null, attendees: [] };
+    openEventForm(null, null, null, clone);
   };
 
   if (cloudOn) {
@@ -650,15 +656,16 @@ async function showDetail(id, occMs) {
 }
 
 // ── 行程表單 ──
-async function openEventForm(ev = null, preset = null, occMs = null) {
+// prefillData:複製行程用,帶入原行程內容但視為全新行程(editingEvent 維持 null)
+async function openEventForm(ev = null, preset = null, occMs = null, prefillData = null) {
   editingEvent = ev;
   editingOccStart = occMs;
   editingPhotos = [];
-  $('eventSheetTitle').textContent = ev ? '編輯行程' : '新增行程';
+  $('eventSheetTitle').textContent = ev ? '編輯行程' : (prefillData ? '複製行程' : '新增行程');
   $('btnEventDelete').hidden = !ev;
 
   const activeCals = calendars.filter(c => !c.deleted);
-  const base = ev || {};
+  const base = ev || prefillData || {};
   const defCalId = base.calendarId || (activeCals[0] && activeCals[0].id);
 
   $('calPicker').innerHTML = activeCals.map(c =>
@@ -679,6 +686,7 @@ async function openEventForm(ev = null, preset = null, occMs = null) {
     const durMs = new Date(ev.end) - new Date(ev.start);
     s = new Date(occMs); e = new Date(occMs + durMs);
   } else if (ev) { s = new Date(ev.start); e = new Date(ev.end); }
+  else if (prefillData) { s = new Date(prefillData.start); e = new Date(prefillData.end); }
   else {
     s = new Date((preset && preset.date) || selectedDay);
     if (preset && preset.hour !== undefined) s.setHours(preset.hour, 0, 0, 0);
@@ -700,8 +708,8 @@ async function openEventForm(ev = null, preset = null, occMs = null) {
   $('evUrl').value = base.url || '';
   $('evNotes').value = base.notes || '';
 
-  if (ev && ev.photos) {
-    for (const pid of ev.photos) {
+  if (base.photos) {
+    for (const pid of base.photos) {
       const p = await db.get('photos', pid);
       if (p) editingPhotos.push(p);
     }

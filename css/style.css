@@ -384,6 +384,23 @@ input[type=text] { -webkit-user-select: text; user-select: text; }
 .detail-close { background: var(--surface2); color: var(--text); }
 .detail-dup { background: var(--surface2); color: var(--text); }
 
+/* ── 複製到其他日期 ── */
+.copy-dates-nav { display: flex; align-items: center; justify-content: center; gap: 20px; font-weight: 700; font-size: 15px; padding: 4px 0 8px; }
+.copy-dates-nav .nav-arrow { font-size: 22px; padding: 0 8px; }
+.copy-dates-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px 0; margin-top: 4px; }
+.copy-date-cell {
+  aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; font-size: 14px; cursor: pointer; margin: 0 auto; width: 38px; height: 38px;
+}
+.copy-date-cell.other { opacity: .3; }
+.copy-date-cell.today { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.copy-date-cell.selected { background: var(--accent); color: #fff; font-weight: 700; box-shadow: none; }
+.copy-dates-confirm {
+  width: 100%; margin-top: 16px; padding: 14px; border: none; border-radius: 12px;
+  background: var(--accent); color: #fff; font-size: 15px; font-weight: 700; cursor: pointer;
+}
+.copy-dates-confirm:disabled { opacity: .35; cursor: default; }
+
 /* ── 設定頁 ── */
 .page {
   position: fixed; inset: 0; background: var(--bg); z-index: 80;

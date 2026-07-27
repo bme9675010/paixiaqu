@@ -178,6 +178,29 @@
     </div>
   </div>
 
+  <!-- 複製到其他日期 -->
+  <div class="sheet-backdrop" id="copyDatesBackdrop">
+    <div class="sheet" id="copyDatesSheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <button class="text-btn" id="btnCopyDatesCancel">取消</button>
+        <span class="sheet-title" id="copyDatesTitle">複製到其他日期</span>
+        <span style="width:36px"></span>
+      </div>
+      <div class="sheet-body">
+        <p class="hint" style="margin-top:0">選擇要複製到的日期(可多選),時間會維持跟原行程一樣</p>
+        <div class="copy-dates-nav">
+          <button class="nav-arrow" id="copyDatesPrev">‹</button>
+          <span id="copyDatesMonthLabel">2026年7月</span>
+          <button class="nav-arrow" id="copyDatesNext">›</button>
+        </div>
+        <div class="weekday-row" id="copyDatesWeekdayRow"></div>
+        <div class="copy-dates-grid" id="copyDatesGrid"></div>
+        <button class="copy-dates-confirm" id="btnCopyDatesConfirm" disabled>請選擇日期</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 搜尋 -->
   <div class="sheet-backdrop" id="searchBackdrop">
     <div class="sheet" id="searchSheet">

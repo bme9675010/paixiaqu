@@ -21,6 +21,9 @@ let editingCal = null;        // 編輯中的行事曆
 let calFormColor = PALETTE[0];
 let todos = [];
 let unsubDetailComments = null; // 行程詳情開啟中的留言即時監聽
+let copySource = null;          // 複製到其他日期:{ ev, durMs }
+let copySelectedDates = new Set();
+let copyCursor = new Date();
 
 // ── 日期工具 ──
 const fmtYMD = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -625,8 +628,7 @@ async function showDetail(id, occMs) {
   };
   $('btnDetailDup').onclick = () => {
     closeDetail();
-    const clone = { ...ev, start: s.toISOString(), end: e.toISOString(), exdates: [], createdBy: null, attendees: [] };
-    openEventForm(null, null, null, clone);
+    openCopyDatesPicker(ev, s, e);
   };
 
   if (cloudOn) {
@@ -929,6 +931,79 @@ function closeEventForm() {
   editingEvent = null;
   editingOccStart = null;
   editingPhotos = [];
+}
+
+// ── 複製到其他日期 ──
+function openCopyDatesPicker(ev, s, e) {
+  copySource = { ev, durMs: e - s };
+  copySelectedDates = new Set();
+  copyCursor = new Date(s);
+  $('copyDatesTitle').textContent = ev.title;
+  renderCopyDatesGrid();
+  $('copyDatesBackdrop').classList.add('open');
+}
+
+function closeCopyDatesPicker() {
+  $('copyDatesBackdrop').classList.remove('open');
+  copySource = null;
+}
+
+function renderCopyDatesGrid() {
+  $('copyDatesMonthLabel').textContent = `${copyCursor.getFullYear()}年${copyCursor.getMonth() + 1}月`;
+  $('copyDatesWeekdayRow').innerHTML = WEEKDAYS.map((w, i) =>
+    `<span class="${i === 0 ? 'wd-sun' : i === 6 ? 'wd-sat' : ''}">${w}</span>`).join('');
+
+  const first = new Date(copyCursor.getFullYear(), copyCursor.getMonth(), 1);
+  const gridStart = startOfWeek(first);
+  const today = new Date();
+  let html = '';
+  for (let i = 0; i < 42; i++) {
+    const d = addDays(gridStart, i);
+    const ymd = fmtYMD(d);
+    const cls = ['copy-date-cell'];
+    if (d.getMonth() !== copyCursor.getMonth()) cls.push('other');
+    if (sameDay(d, today)) cls.push('today');
+    if (copySelectedDates.has(ymd)) cls.push('selected');
+    html += `<div class="${cls.join(' ')}" data-date="${ymd}">${d.getDate()}</div>`;
+  }
+  $('copyDatesGrid').innerHTML = html;
+  $('copyDatesGrid').querySelectorAll('.copy-date-cell').forEach(cell => {
+    cell.onclick = () => {
+      const ymd = cell.dataset.date;
+      if (copySelectedDates.has(ymd)) copySelectedDates.delete(ymd); else copySelectedDates.add(ymd);
+      renderCopyDatesGrid();
+    };
+  });
+  const btn = $('btnCopyDatesConfirm');
+  btn.disabled = copySelectedDates.size === 0;
+  btn.textContent = copySelectedDates.size ? `複製到已選擇的日期 (${copySelectedDates.size})` : '請選擇日期';
+}
+
+async function confirmCopyDates() {
+  if (!copySource || !copySelectedDates.size) return;
+  const { ev, durMs } = copySource;
+  const origStart = new Date(ev.start);
+  let count = 0;
+  for (const ymd of copySelectedDates) {
+    const [y, m, dd] = ymd.split('-').map(Number);
+    const newStart = new Date(y, m - 1, dd, origStart.getHours(), origStart.getMinutes(), 0, 0);
+    const newEnd = new Date(newStart.getTime() + durMs);
+    const clone = {
+      id: db.uid(), calendarId: ev.calendarId, title: ev.title, allDay: ev.allDay,
+      start: newStart.toISOString(), end: newEnd.toISOString(),
+      repeat: 'none', exdates: [], reminder: ev.reminder, reminder2: ev.reminder2 ?? null,
+      url: ev.url || '', notes: ev.notes || '', photos: ev.photos || [],
+      createdBy: sync.getUid(), attendees: [],
+      deleted: false, updatedAt: Date.now(),
+    };
+    await db.put('events', clone);
+    sync.pushEvent(clone);
+    count++;
+  }
+  events = await db.getAll('events');
+  closeCopyDatesPicker();
+  render();
+  toast(`已複製到 ${count} 天 ✅`);
 }
 
 // ── 待辦清單 ──
@@ -1353,6 +1428,11 @@ function bindUI() {
   $('btnCalSave').onclick = saveCal;
   $('btnCalDelete').onclick = deleteCal;
 
+  $('btnCopyDatesCancel').onclick = closeCopyDatesPicker;
+  $('btnCopyDatesConfirm').onclick = confirmCopyDates;
+  $('copyDatesPrev').onclick = () => { copyCursor = new Date(copyCursor.getFullYear(), copyCursor.getMonth() - 1, 1); renderCopyDatesGrid(); };
+  $('copyDatesNext').onclick = () => { copyCursor = new Date(copyCursor.getFullYear(), copyCursor.getMonth() + 1, 1); renderCopyDatesGrid(); };
+
   $('btnNotifyPerm').onclick = async () => {
     if (!('Notification' in window)) { toast('此瀏覽器不支援通知'); return; }
     const perm = await Notification.requestPermission();
@@ -1371,7 +1451,7 @@ function bindUI() {
   $('searchInput').oninput = runSearch;
 
   // 點背景關閉 sheet(開啟後 300ms 內忽略,避免點擊穿透)
-  for (const id of ['eventSheetBackdrop', 'detailBackdrop', 'calSheetBackdrop', 'searchBackdrop']) {
+  for (const id of ['eventSheetBackdrop', 'detailBackdrop', 'calSheetBackdrop', 'searchBackdrop', 'copyDatesBackdrop']) {
     const el = $(id);
     let openedAt = 0;
     new MutationObserver(() => { if (el.classList.contains('open')) openedAt = Date.now(); })

@@ -93,6 +93,19 @@ export const sync = {
     $('btnCreateGroup').onclick = () => this.createGroup();
     $('btnJoinGroup').onclick = () => this.joinGroup($('joinCode').value.trim());
     $('syncName').onchange = () => db.setMeta('memberName', $('syncName').value.trim());
+    $('btnManualSync').hidden = !groupId;
+    $('btnManualSync').onclick = async () => {
+      $('btnManualSync').disabled = true;
+      await this.manualSync();
+      $('btnManualSync').disabled = false;
+      toast('已同步最新資料 ✅');
+    };
+  },
+
+  async manualSync() {
+    if (!fb || !groupId) return;
+    await this.pullAll();
+    if (onRemoteChange) onRemoteChange();
   },
 
   async createGroup() {

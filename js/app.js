@@ -165,9 +165,16 @@ function renderMonth() {
       ? `<div class="mcell-holname">${holiday}</div>`
       : (lunar ? `<div class="mcell-lunar">${lunar}</div>` : '');
     const maxChips = holHtml ? 2 : 3;
-    let chips = dayOccs.slice(0, maxChips).map(o =>
+    // 每個工作日重複的行程(通常是天天出現的短提醒)改用小圓點,把文字空間留給真正的當天行程
+    const dotOccs = dayOccs.filter(o => o.ev.repeat === 'weekday');
+    const textOccs = dayOccs.filter(o => o.ev.repeat !== 'weekday');
+    let chips = textOccs.slice(0, maxChips).map(o =>
       `<div class="chip" style="background:${calById(o.ev.calendarId).color}">${esc(o.ev.title)}</div>`).join('');
-    if (dayOccs.length > maxChips) chips += `<div class="chip more">+${dayOccs.length - maxChips}</div>`;
+    if (textOccs.length > maxChips) chips += `<div class="chip more">+${textOccs.length - maxChips}</div>`;
+    if (dotOccs.length) {
+      chips += `<div class="mcell-dots">${dotOccs.map(o =>
+        `<span class="mdot" style="background:${calById(o.ev.calendarId).color}"></span>`).join('')}</div>`;
+    }
     cells.push(`<div class="${cls.join(' ')}" data-date="${fmtYMD(d)}"><div class="mcell-num">${d.getDate()}</div>${holHtml}${chips}</div>`);
   }
   $('monthGrid').innerHTML = cells.join('');
@@ -1358,10 +1365,10 @@ async function importData(file) {
     const data = JSON.parse(await file.text());
     if (data.app !== 'paixiaqu') { toast('這不是排下去的備份檔'); return; }
     if (!confirm(`匯入 ${data.calendars.length} 本行事曆、${data.events.length} 個行程?(與現有資料合併)`)) return;
-    for (const c of data.calendars) await db.put('calendars', c);
-    for (const e of data.events) await db.put('events', e);
+    for (const c of data.calendars) { await db.put('calendars', c); sync.pushCalendar(c); }
+    for (const e of data.events) { await db.put('events', e); sync.pushEvent(e); }
     for (const p of (data.photos || [])) await db.put('photos', p);
-    for (const t of (data.todos || [])) await db.put('todos', t);
+    for (const t of (data.todos || [])) { await db.put('todos', t); sync.pushTodo(t); }
     calendars = await db.getAll('calendars');
     events = await db.getAll('events');
     todos = await db.getAll('todos');

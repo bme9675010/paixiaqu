@@ -49,13 +49,16 @@ function occurrencesInRange(rangeStart, rangeEnd) {
       if (evStart <= rangeEnd && evEnd >= rangeStart) out.push({ ev, start: evStart, end: evEnd });
       continue;
     }
-    // 從行程開始日往後展開到範圍結束(上限 500 次防呆;跳過已排除的單次)
+    // 從行程開始日往後展開到範圍結束(上限 500 次防呆;跳過已排除的單次;超過重複結束日就停止)
     const exdates = ev.exdates || [];
+    const until = ev.repeatUntil ? new Date(ev.repeatUntil + 'T23:59:59') : null;
     let cur = new Date(evStart);
     for (let i = 0; i < 500 && cur <= rangeEnd; i++) {
+      if (until && cur > until) break;
       const occEnd = new Date(cur.getTime() + durMs);
       if (occEnd >= rangeStart && !exdates.includes(fmtYMD(cur))) out.push({ ev, start: new Date(cur), end: occEnd });
       if (ev.repeat === 'daily') cur = addDays(cur, 1);
+      else if (ev.repeat === 'weekday') { do { cur = addDays(cur, 1); } while (cur.getDay() === 0 || cur.getDay() === 6); }
       else if (ev.repeat === 'weekly') cur = addDays(cur, 7);
       else if (ev.repeat === 'monthly') { cur = new Date(cur); cur.setMonth(cur.getMonth() + 1); }
       else if (ev.repeat === 'yearly') { cur = new Date(cur); cur.setFullYear(cur.getFullYear() + 1); }
@@ -571,7 +574,11 @@ async function showDetail(id, occMs) {
   const timeStr = ev.allDay
     ? `${s.getMonth() + 1}月${s.getDate()}日` + (sameDay(s, e) ? '' : ` - ${e.getMonth() + 1}月${e.getDate()}日`) + ' · 全天'
     : `${s.getMonth() + 1}月${s.getDate()}日 ${fmtHM(s)} - ` + (sameDay(s, e) ? '' : `${e.getMonth() + 1}月${e.getDate()}日 `) + fmtHM(e);
-  const repeatStr = { daily: '每天重複', weekly: '每週重複', monthly: '每月重複', yearly: '每年重複' }[ev.repeat] || '';
+  let repeatStr = { daily: '每天重複', weekday: '每個工作日重複', weekly: '每週重複', monthly: '每月重複', yearly: '每年重複' }[ev.repeat] || '';
+  if (repeatStr && ev.repeatUntil) {
+    const u = new Date(ev.repeatUntil);
+    repeatStr += `,至${u.getFullYear()}/${u.getMonth() + 1}/${u.getDate()}`;
+  }
 
   let photosHtml = '';
   if (ev.photos && ev.photos.length) {
@@ -702,6 +709,8 @@ async function openEventForm(ev = null, preset = null, occMs = null, prefillData
   toggleTimeInputs();
 
   $('evRepeat').value = base.repeat || 'none';
+  $('evRepeatUntil').value = base.repeatUntil || '';
+  $('repeatUntilRow').hidden = (base.repeat || 'none') === 'none';
   $('evReminder').value = (base.reminder === null || base.reminder === undefined) ? '' : String(base.reminder);
   const hasReminder2 = base.reminder2 !== null && base.reminder2 !== undefined;
   $('evReminder2').value = hasReminder2 ? String(base.reminder2) : '';
@@ -823,6 +832,7 @@ async function saveEvent() {
     title,
     allDay,
     repeat: $('evRepeat').value,
+    repeatUntil: $('repeatUntilRow').hidden ? null : ($('evRepeatUntil').value || null),
     reminder: reminderVal === '' ? null : Number(reminderVal),
     reminder2: reminder2Val === '' ? null : Number(reminder2Val),
     url,
@@ -843,7 +853,7 @@ async function saveEvent() {
         updatedAt: Date.now(),
       };
       const single = {
-        id: db.uid(), ...formVals, repeat: 'none',
+        id: db.uid(), ...formVals, repeat: 'none', repeatUntil: null,
         start: s.toISOString(), end: e.toISOString(),
         createdBy: editingEvent.createdBy || sync.getUid(), attendees: editingEvent.attendees || [],
         deleted: false, updatedAt: Date.now(),
@@ -1392,6 +1402,7 @@ function bindUI() {
   $('btnEventSave').onclick = saveEvent;
   $('btnEventDelete').onclick = deleteEvent;
   $('evAllDay').onchange = toggleTimeInputs;
+  $('evRepeat').onchange = () => { $('repeatUntilRow').hidden = $('evRepeat').value === 'none'; };
   $('btnAddReminder2').onclick = () => {
     $('reminder2Row').hidden = false;
     $('btnAddReminder2').hidden = true;

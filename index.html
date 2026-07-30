@@ -114,10 +114,19 @@
           <select id="evRepeat">
             <option value="none">不重複</option>
             <option value="daily">每天</option>
+            <option value="weekday">每個工作日(週一~五)</option>
             <option value="weekly">每週</option>
             <option value="monthly">每月</option>
             <option value="yearly">每年</option>
           </select>
+        </div>
+
+        <div class="form-row form-col" id="repeatUntilRow" hidden>
+          <div class="form-row" style="padding:0;border:none">
+            <span class="form-label">重複結束於</span>
+            <input type="date" id="evRepeatUntil">
+          </div>
+          <p class="hint" style="margin-top:2px">留空 = 永不結束</p>
         </div>
 
         <div class="form-row">

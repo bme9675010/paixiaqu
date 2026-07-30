@@ -239,7 +239,7 @@ export const sync = {
       await setDoc(doc(fb.fs, 'groups', groupId, 'events', ev.id), {
         calendarId: ev.calendarId, title: ev.title, allDay: ev.allDay,
         startAt: ev.start, endAt: ev.end,
-        repeat: ev.repeat || 'none', exdates: ev.exdates || [],
+        repeat: ev.repeat || 'none', repeatUntil: ev.repeatUntil || null, exdates: ev.exdates || [],
         reminder: ev.reminder, reminder2: ev.reminder2 ?? null, url: ev.url || '', notes: ev.notes || '',
         photoIds: ev.photos || [],
         createdBy: ev.createdBy || fb.uid, attendees: ev.attendees || [],
@@ -315,7 +315,7 @@ export const sync = {
           await db.put('events', {
             id: d.id, calendarId: re.calendarId, title: re.title,
             allDay: re.allDay, start: re.startAt, end: re.endAt,
-            repeat: re.repeat, exdates: re.exdates || [], reminder: re.reminder, reminder2: re.reminder2 ?? null, url: re.url || '', notes: re.notes,
+            repeat: re.repeat, repeatUntil: re.repeatUntil || null, exdates: re.exdates || [], reminder: re.reminder, reminder2: re.reminder2 ?? null, url: re.url || '', notes: re.notes,
             photos: photoIds, createdBy: re.createdBy || null, attendees: re.attendees || [],
             deleted: re.deleted, updatedAt: re.updatedAtMs,
           });

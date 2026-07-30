@@ -212,7 +212,7 @@ function renderDayPanel() {
   $('dayEventsList').innerHTML = occs.map(o => {
     const cal = calById(o.ev.calendarId);
     const time = o.ev.allDay ? '全天' : `${fmtHM(o.start)} - ${fmtHM(o.end)}`;
-    const icons = [(o.ev.photos && o.ev.photos.length) ? '📎' : '', o.ev.url ? '🔗' : '', o.ev.notes ? '📝' : '', (o.ev.repeat && o.ev.repeat !== 'none') ? '🔁' : ''].join('');
+    const icons = [o.ev.location ? '📍' : '', (o.ev.photos && o.ev.photos.length) ? '📎' : '', o.ev.url ? '🔗' : '', o.ev.notes ? '📝' : '', (o.ev.repeat && o.ev.repeat !== 'none') ? '🔁' : ''].join('');
     return `<div class="ev-row" data-id="${o.ev.id}" data-occ="${o.start.getTime()}">
       <div class="ev-row-bar" style="background:${cal.color}"></div>
       <div class="ev-row-main">
@@ -602,6 +602,7 @@ async function showDetail(id, occMs) {
     if (items.length) photosHtml = `<div class="detail-photos">${items.join('')}</div>`;
   }
   const urlHtml = ev.url ? `<a class="link-row" href="${esc(ev.url)}" target="_blank" rel="noopener">🔗 <span>${esc(ev.url)}</span></a>` : '';
+  const locationHtml = ev.location ? `<a class="link-row" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ev.location)}" target="_blank" rel="noopener">📍 <span>${esc(ev.location)}</span></a>` : '';
 
   const cloudOn = sync.cloudActive();
   const myUid = sync.getUid();
@@ -627,6 +628,7 @@ async function showDetail(id, occMs) {
     <div class="detail-title">${esc(ev.title)}<span class="detail-cal" style="background:${cal.color}">${esc(cal.name)}</span></div>
     <div class="detail-time">${timeStr}${repeatStr ? ' · 🔁 ' + repeatStr : ''}${ev.reminder !== null && ev.reminder !== undefined && ev.reminder !== '' ? ' · 🔔' : ''}</div>
     ${creatorHtml}
+    ${locationHtml}
     ${urlHtml}
     ${ev.notes ? `<div class="detail-notes">${esc(ev.notes)}</div>` : ''}
     ${photosHtml}
@@ -726,6 +728,7 @@ async function openEventForm(ev = null, preset = null, occMs = null, prefillData
   $('evReminder2').value = hasReminder2 ? String(base.reminder2) : '';
   $('reminder2Row').hidden = !hasReminder2;
   $('btnAddReminder2').hidden = hasReminder2;
+  $('evLocation').value = base.location || '';
   $('evUrl').value = base.url || '';
   $('evNotes').value = base.notes || '';
 
@@ -845,6 +848,7 @@ async function saveEvent() {
     repeatUntil: $('repeatUntilRow').hidden ? null : ($('evRepeatUntil').value || null),
     reminder: reminderVal === '' ? null : Number(reminderVal),
     reminder2: reminder2Val === '' ? null : Number(reminder2Val),
+    location: $('evLocation').value.trim(),
     url,
     notes: $('evNotes').value.trim(),
     photos: photoIds,
@@ -1012,7 +1016,7 @@ async function confirmCopyDates() {
       id: db.uid(), calendarId: ev.calendarId, title: ev.title, allDay: ev.allDay,
       start: newStart.toISOString(), end: newEnd.toISOString(),
       repeat: 'none', exdates: [], reminder: ev.reminder, reminder2: ev.reminder2 ?? null,
-      url: ev.url || '', notes: ev.notes || '', photos: ev.photos || [],
+      location: ev.location || '', url: ev.url || '', notes: ev.notes || '', photos: ev.photos || [],
       createdBy: sync.getUid(), attendees: [],
       deleted: false, updatedAt: Date.now(),
     };

@@ -188,7 +188,10 @@ function renderMonth() {
         return;
       }
       selectedDay = clicked;
-      if (selectedDay.getMonth() !== cursor.getMonth()) cursor = new Date(selectedDay);
+      if (selectedDay.getMonth() !== cursor.getMonth()) {
+        cursor = new Date(selectedDay);
+        renderTitle();
+      }
       renderMonth();
     };
   });

@@ -3,7 +3,7 @@
 import { db } from './db.js';
 
 const SDK_VER = '10.12.2';
-const PHOTO_MAX_BASE64 = 900000; // Firestore 單一文件上限 1MiB,照片留安全邊界
+export const PHOTO_MAX_BASE64 = 900000; // Firestore 單一文件上限 1MiB,照片留安全邊界
 
 let fb = null; // { auth, fs, uid, mods:{...firestore funcs} }
 let groupId = null;

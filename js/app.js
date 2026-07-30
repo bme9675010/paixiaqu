@@ -1,6 +1,6 @@
 // 給他排下去 — 主程式
 import { db } from './db.js';
-import { sync } from './sync.js';
+import { sync, PHOTO_MAX_BASE64 } from './sync.js';
 import { HOLIDAYS } from './holidays.js';
 
 const $ = id => document.getElementById(id);
@@ -1431,9 +1431,11 @@ function bindUI() {
       try {
         if (f.type.startsWith('image/')) {
           const data = await compressImage(f);
+          if (data.length > PHOTO_MAX_BASE64) toast(`「${f.name}」壓縮後還是太大,只會存在這台裝置,家人看不到`);
           editingPhotos.push({ id: db.uid(), data, name: f.name, type: 'image/jpeg', updatedAt: Date.now() });
         } else {
           const data = await readFileAsDataURL(f);
+          if (data.length > PHOTO_MAX_BASE64) toast(`「${f.name}」檔案太大,只會存在這台裝置,家人看不到`);
           editingPhotos.push({ id: db.uid(), data, name: f.name, type: f.type || 'application/octet-stream', updatedAt: Date.now() });
         }
       } catch { toast(`「${f.name}」讀取失敗`); }

@@ -1528,27 +1528,36 @@ function bindUI() {
     const handle = el.querySelector('.sheet-handle');
     if (sheet && handle) {
       let startY = 0, dragging = false;
-      const onMove = (e) => {
+      const begin = (y) => {
+        dragging = true; startY = y;
+        sheet.style.transition = 'none';
+      };
+      const move = (y) => {
         if (!dragging) return;
-        const dy = Math.max(0, e.clientY - startY);
+        const dy = Math.max(0, y - startY);
         sheet.style.transform = dy ? `translateY(${dy}px)` : '';
       };
-      const onEnd = (e) => {
+      const end = (y) => {
         if (!dragging) return;
         dragging = false;
         sheet.style.transition = '';
-        const dy = Math.max(0, e.clientY - startY);
+        const dy = Math.max(0, y - startY);
         sheet.style.transform = '';
-        if (dy > 90) el.classList.remove('open');
+        if (dy > 70) el.classList.remove('open');
       };
-      handle.addEventListener('pointerdown', (e) => {
-        dragging = true; startY = e.clientY;
-        sheet.style.transition = 'none';
-        handle.setPointerCapture(e.pointerId);
+      // iOS 上原生的滑動手勢會搶走 pointer 事件,改用 touch 事件並在拖動時 preventDefault
+      handle.addEventListener('touchstart', (e) => begin(e.touches[0].clientY), { passive: true });
+      handle.addEventListener('touchmove', (e) => { if (dragging) e.preventDefault(); move(e.touches[0].clientY); }, { passive: false });
+      handle.addEventListener('touchend', (e) => end(e.changedTouches[0].clientY));
+      handle.addEventListener('touchcancel', (e) => end(e.changedTouches[0].clientY));
+      // 桌面滑鼠(測試/預覽用)
+      handle.addEventListener('mousedown', (e) => {
+        begin(e.clientY);
+        const onMove = (e2) => move(e2.clientY);
+        const onUp = (e2) => { end(e2.clientY); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
       });
-      handle.addEventListener('pointermove', onMove);
-      handle.addEventListener('pointerup', onEnd);
-      handle.addEventListener('pointercancel', onEnd);
     }
   }
 

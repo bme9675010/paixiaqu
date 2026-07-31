@@ -43,6 +43,21 @@ function titleColor(title) {
   for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) >>> 0;
   return PALETTE[h % PALETTE.length];
 }
+// 把字串依字數平均切成 n 段(給跨日行程橫幅用,例如「花蓮三天二夜」切 3 天就變成「花蓮」「三天」「二夜」)
+function splitEven(str, n) {
+  if (n <= 1) return [str];
+  const len = str.length;
+  const base = Math.floor(len / n);
+  const extra = len % n;
+  const parts = [];
+  let idx = 0;
+  for (let i = 0; i < n; i++) {
+    const size = base + (i < extra ? 1 : 0);
+    parts.push(str.slice(idx, idx + size));
+    idx += size;
+  }
+  return parts;
+}
 
 // ── 重複行程展開:回傳指定範圍內的「行程實例」 ──
 function occurrencesInRange(rangeStart, rangeEnd) {
@@ -156,6 +171,28 @@ function renderMonth() {
   const rangeEnd = addDays(gridStart, 42);
   const occs = occurrencesInRange(gridStart, endOfDay(addDays(rangeEnd, -1)));
 
+  // 跨日行程(如「花蓮三天二夜」)→ 把標題依字數平均切開,分別顯示在它橫跨的每一天(同一列內),而不是只在第一天顯示
+  const barTextMap = new Map();
+  for (const o of occs.filter(o => fmtYMD(o.start) !== fmtYMD(o.end))) {
+    const occKey = o.ev.id + '_' + o.start.getTime();
+    const touches = [];
+    for (let i = 0; i < 42; i++) {
+      const d = addDays(gridStart, i);
+      touches.push(o.start <= endOfDay(d) && o.end >= startOfDay(d));
+    }
+    let i = 0;
+    while (i < 42) {
+      if (!touches[i]) { i++; continue; }
+      let j = i;
+      while (j < 42 && touches[j] && j % 7 !== 6) j++;
+      const segEnd = (j < 42 && touches[j] && j % 7 === 6) ? j : j - 1;
+      const days = segEnd - i + 1;
+      const chunks = splitEven(o.ev.title, days);
+      for (let k = 0; k < days; k++) barTextMap.set(`${i + k}|${occKey}`, chunks[k]);
+      i = segEnd + 1;
+    }
+  }
+
   for (let i = 0; i < 42; i++) {
     const d = addDays(gridStart, i);
     const dYMD = fmtYMD(d);
@@ -188,12 +225,15 @@ function renderMonth() {
       const barCls = ['mday-bar'];
       if (isTrueStart) barCls.push('round-l'); else if (!rowStart) barCls.push('bleed-l');
       if (isTrueEnd) barCls.push('round-r'); else if (!rowEnd) barCls.push('bleed-r');
-      return `<div class="${barCls.join(' ')}" style="background:${evColor(o.ev)}">${rowStart ? esc(o.ev.title) : ''}</div>`;
+      const chunkText = barTextMap.get(`${i}|${o.ev.id}_${o.start.getTime()}`) || '';
+      return `<div class="${barCls.join(' ')}" style="background:${evColor(o.ev)}">${esc(chunkText)}</div>`;
     }).join('');
 
-    // 每個工作日重複的行程(通常是天天出現的短提醒)改用小圓點,把文字空間留給真正的當天行程
-    const dotOccs = singleDayOccs.filter(o => o.ev.repeat === 'weekday');
-    const textOccs = singleDayOccs.filter(o => o.ev.repeat !== 'weekday');
+    // 每個工作日重複的行程(通常是天天出現的短提醒)改用小圓點,把文字空間留給真正的當天行程;
+    // 但如果當天沒有其他行程,格子會顯得空空的,這時改回顯示文字比較好認
+    let dotOccs = singleDayOccs.filter(o => o.ev.repeat === 'weekday');
+    let textOccs = singleDayOccs.filter(o => o.ev.repeat !== 'weekday');
+    if (!textOccs.length && dotOccs.length) { textOccs = dotOccs; dotOccs = []; }
     let chips = textOccs.slice(0, maxChips).map(o =>
       `<div class="chip" style="background:${evColor(o.ev)}">${esc(o.ev.title)}</div>`).join('');
     if (textOccs.length > maxChips) chips += `<div class="chip more">+${textOccs.length - maxChips}</div>`;

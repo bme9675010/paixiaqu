@@ -230,9 +230,24 @@ function buildMonthCells(forMonth) {
 
     // 每個工作日重複的行程(通常是天天出現的短提醒)改用小圓點,把文字空間留給真正的當天行程;
     // 但如果當天沒有其他行程,格子會顯得空空的,這時改回顯示文字比較好認
-    let dotOccs = singleDayOccs.filter(o => o.ev.repeat === 'weekday');
-    let textOccs = singleDayOccs.filter(o => o.ev.repeat !== 'weekday');
-    if (!textOccs.length && dotOccs.length) { textOccs = dotOccs; dotOccs = []; }
+    let textOccs, dotOccs;
+    if (singleDayOccs.length <= maxChips) {
+      // 格子放得下當天所有行程 → 一律照正常文字顯示,不用縮成圓點
+      textOccs = singleDayOccs;
+      dotOccs = [];
+    } else {
+      const weekdayOccs = singleDayOccs.filter(o => o.ev.repeat === 'weekday');
+      const otherOccs = singleDayOccs.filter(o => o.ev.repeat !== 'weekday');
+      if (!otherOccs.length) {
+        // 當天只有每工作日重複的行程,沒有別的需要讓位,照樣顯示文字
+        textOccs = weekdayOccs;
+        dotOccs = [];
+      } else {
+        // 放不下 → 每工作日重複的先縮成圓點,把有限的文字空間讓給其他行程
+        textOccs = otherOccs;
+        dotOccs = weekdayOccs;
+      }
+    }
     let chips = textOccs.slice(0, maxChips).map(o =>
       `<div class="chip" style="background:${evColor(o.ev)}">${esc(o.ev.title)}</div>`).join('');
     if (textOccs.length > maxChips) chips += `<div class="chip more">+${textOccs.length - maxChips}</div>`;

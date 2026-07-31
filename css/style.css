@@ -91,7 +91,8 @@ body {
 }
 .month-grid.peek { pointer-events: none; }
 .mcell {
-  border-top: 1px solid var(--line); border-right: 1px solid var(--line);
+  border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
   padding: 3px 2px 1px; overflow: hidden; cursor: pointer;
   display: flex; flex-direction: column; gap: 2px; min-width: 0;
   transition: background .12s;
@@ -120,6 +121,7 @@ body {
 .mday-bar {
   font-size: 10px; line-height: 1.35; padding: 1px 4px; color: #fff; font-weight: 500;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; position: relative;
+  display: flex; align-items: center; justify-content: center; text-align: center;
 }
 .mday-bar.round-l { border-top-left-radius: 5px; border-bottom-left-radius: 5px; }
 .mday-bar.round-r { border-top-right-radius: 5px; border-bottom-right-radius: 5px; }

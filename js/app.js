@@ -1590,16 +1590,34 @@ async function importICS(file) {
 function openSearch() {
   $('searchBackdrop').classList.add('open');
   $('searchInput').value = '';
-  $('searchResults').innerHTML = '<div class="empty-hint">輸入標題或備註關鍵字</div>';
+  $('searchDateFrom').value = '';
+  $('searchDateTo').value = '';
+  const activeCals = calendars.filter(c => !c.deleted);
+  $('searchCalFilter').innerHTML = activeCals.map(c =>
+    `<span class="cal-opt" data-id="${c.id}"><span class="cal-dot" style="background:${c.color}"></span>${esc(c.name)}</span>`).join('');
+  $('searchCalFilter').querySelectorAll('.cal-opt').forEach(o => {
+    o.onclick = () => { o.classList.toggle('sel'); runSearch(); };
+  });
+  $('searchResults').innerHTML = '<div class="empty-hint">輸入標題或備註關鍵字,或直接用下面的篩選條件</div>';
   setTimeout(() => $('searchInput').focus(), 250);
 }
 
 function runSearch() {
   const q = $('searchInput').value.trim().toLowerCase();
   const box = $('searchResults');
-  if (!q) { box.innerHTML = '<div class="empty-hint">輸入標題或備註關鍵字</div>'; return; }
+  const selectedCals = new Set([...$('searchCalFilter').querySelectorAll('.cal-opt.sel')].map(o => o.dataset.id));
+  const dateFrom = $('searchDateFrom').value;
+  const dateTo = $('searchDateTo').value;
+  if (!q && !selectedCals.size && !dateFrom && !dateTo) {
+    box.innerHTML = '<div class="empty-hint">輸入標題或備註關鍵字,或直接用下面的篩選條件</div>';
+    return;
+  }
   const hits = events
-    .filter(ev => !ev.deleted && ((ev.title || '').toLowerCase().includes(q) || (ev.notes || '').toLowerCase().includes(q)))
+    .filter(ev => !ev.deleted)
+    .filter(ev => !q || (ev.title || '').toLowerCase().includes(q) || (ev.notes || '').toLowerCase().includes(q))
+    .filter(ev => !selectedCals.size || selectedCals.has(ev.calendarId))
+    .filter(ev => !dateFrom || fmtYMD(new Date(ev.end)) >= dateFrom)
+    .filter(ev => !dateTo || fmtYMD(new Date(ev.start)) <= dateTo)
     .sort((a, b) => new Date(b.start) - new Date(a.start))
     .slice(0, 50);
   if (!hits.length) { box.innerHTML = '<div class="empty-hint">找不到符合的行程</div>'; return; }
@@ -1792,6 +1810,8 @@ function bindUI() {
   $('btnSearch').onclick = openSearch;
   $('btnSearchClose').onclick = () => $('searchBackdrop').classList.remove('open');
   $('searchInput').oninput = runSearch;
+  $('searchDateFrom').onchange = runSearch;
+  $('searchDateTo').onchange = runSearch;
 
   // 點背景關閉 sheet(開啟後 300ms 內忽略,避免點擊穿透)
   for (const id of ['eventSheetBackdrop', 'detailBackdrop', 'calSheetBackdrop', 'searchBackdrop', 'copyDatesBackdrop', 'dayAgendaBackdrop']) {

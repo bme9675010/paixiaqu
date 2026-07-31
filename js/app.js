@@ -1,7 +1,7 @@
 // 給他排下去 — 主程式
 import { db } from './db.js';
 import { sync, PHOTO_MAX_BASE64 } from './sync.js';
-import { HOLIDAYS } from './holidays.js';
+import { HOLIDAYS, refreshHolidays } from './holidays.js';
 
 const $ = id => document.getElementById(id);
 const HOUR_H = 48; // 時間軸每小時高度(px)
@@ -130,6 +130,7 @@ async function init() {
   registerSW();
   startReminderLoop();
   startClock();
+  refreshHolidays().then(changed => { if (changed) render(); }).catch(() => {});
   sync.init({
     onRemoteChange: async () => {
       calendars = await db.getAll('calendars');

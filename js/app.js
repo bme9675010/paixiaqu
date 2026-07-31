@@ -276,18 +276,21 @@ function renderMonth() {
     c.onclick = () => {
       const clicked = cellDate();
       const now = Date.now();
+      // 兩種情況都直接跳出當天總表:快速點兩下,或這天本來就已經是選取狀態(再點一下等於「看這天」)
+      const alreadySelected = sameDay(clicked, selectedDay);
       const isDoubleTap = lastTapDateStr === c.dataset.date && (now - lastTapAt) < DOUBLE_TAP_MS;
       lastTapDateStr = c.dataset.date;
       lastTapAt = now;
       selectedDay = clicked;
-      if (isDoubleTap) {
-        lastTapAt = 0; // 避免連點三次時第三下又被判定成雙擊
-        openDayAgenda(selectedDay);
-        return;
-      }
       if (selectedDay.getMonth() !== cursor.getMonth()) {
         cursor = new Date(selectedDay);
         renderTitle();
+      }
+      if (isDoubleTap || alreadySelected) {
+        lastTapAt = 0; // 避免連點三次時第三下又被判定成雙擊
+        renderMonth();
+        openDayAgenda(selectedDay);
+        return;
       }
       renderMonth();
     };

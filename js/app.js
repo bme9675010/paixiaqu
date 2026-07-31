@@ -77,16 +77,41 @@ function occurrencesInRange(rangeStart, rangeEnd) {
     // 從行程開始日往後展開到範圍結束(上限 500 次防呆;跳過已排除的單次;超過重複結束日就停止)
     const exdates = ev.exdates || [];
     const until = ev.repeatUntil ? new Date(ev.repeatUntil + 'T23:59:59') : null;
+    const interval = Math.max(1, ev.interval || 1);
+
+    if (ev.repeat === 'weekly' && ev.byDay && ev.byDay.length) {
+      // 每週重複可複選多個星期幾(例如週一+週三);以「週」為單位往前推進,套用 interval
+      let weekStart = startOfWeek(evStart);
+      const days = [...ev.byDay].sort((a, b) => a - b);
+      for (let w = 0; w < 500 && weekStart <= rangeEnd; w++) {
+        if (until && weekStart > until) break;
+        if (w % interval === 0) {
+          for (const wd of days) {
+            const occDate = addDays(weekStart, wd);
+            occDate.setHours(evStart.getHours(), evStart.getMinutes(), evStart.getSeconds(), 0);
+            if (occDate < evStart) continue;
+            if (until && occDate > until) continue;
+            const occEnd = new Date(occDate.getTime() + durMs);
+            if (occEnd >= rangeStart && occDate <= rangeEnd && !exdates.includes(fmtYMD(occDate))) {
+              out.push({ ev, start: occDate, end: occEnd });
+            }
+          }
+        }
+        weekStart = addDays(weekStart, 7);
+      }
+      continue;
+    }
+
     let cur = new Date(evStart);
     for (let i = 0; i < 500 && cur <= rangeEnd; i++) {
       if (until && cur > until) break;
       const occEnd = new Date(cur.getTime() + durMs);
       if (occEnd >= rangeStart && !exdates.includes(fmtYMD(cur))) out.push({ ev, start: new Date(cur), end: occEnd });
-      if (ev.repeat === 'daily') cur = addDays(cur, 1);
+      if (ev.repeat === 'daily') cur = addDays(cur, interval);
       else if (ev.repeat === 'weekday') { do { cur = addDays(cur, 1); } while (cur.getDay() === 0 || cur.getDay() === 6); }
-      else if (ev.repeat === 'weekly') cur = addDays(cur, 7);
-      else if (ev.repeat === 'monthly') { cur = new Date(cur); cur.setMonth(cur.getMonth() + 1); }
-      else if (ev.repeat === 'yearly') { cur = new Date(cur); cur.setFullYear(cur.getFullYear() + 1); }
+      else if (ev.repeat === 'weekly') cur = addDays(cur, 7 * interval);
+      else if (ev.repeat === 'monthly') { cur = new Date(cur); cur.setMonth(cur.getMonth() + interval); }
+      else if (ev.repeat === 'yearly') { cur = new Date(cur); cur.setFullYear(cur.getFullYear() + interval); }
       else break;
     }
   }
@@ -682,7 +707,15 @@ async function showDetail(id, occMs) {
   const timeStr = ev.allDay
     ? `${s.getMonth() + 1}月${s.getDate()}日` + (sameDay(s, e) ? '' : ` - ${e.getMonth() + 1}月${e.getDate()}日`) + ' · 全天'
     : `${s.getMonth() + 1}月${s.getDate()}日 ${fmtHM(s)} - ` + (sameDay(s, e) ? '' : `${e.getMonth() + 1}月${e.getDate()}日 `) + fmtHM(e);
-  let repeatStr = { daily: '每天重複', weekday: '每個工作日重複', weekly: '每週重複', monthly: '每月重複', yearly: '每年重複' }[ev.repeat] || '';
+  let repeatStr = '';
+  if (ev.repeat === 'weekday') repeatStr = '每個工作日重複';
+  else if (ev.repeat === 'weekly' && ev.byDay && ev.byDay.length) {
+    const names = [...ev.byDay].sort((a, b) => a - b).map(w => WEEKDAYS[w]).join('、');
+    repeatStr = (ev.interval > 1 ? `每${ev.interval}週重複(${names})` : `每週重複(${names})`);
+  } else if (ev.repeat && ev.repeat !== 'none') {
+    const unit = REPEAT_UNIT_LABEL[ev.repeat] || '';
+    repeatStr = ev.interval > 1 ? `每${ev.interval}${unit}重複` : { daily: '每天重複', weekly: '每週重複', monthly: '每月重複', yearly: '每年重複' }[ev.repeat] || '';
+  }
   if (repeatStr && ev.repeatUntil) {
     const u = new Date(ev.repeatUntil);
     repeatStr += `,至${u.getFullYear()}/${u.getMonth() + 1}/${u.getDate()}`;
@@ -841,7 +874,11 @@ async function openEventForm(ev = null, preset = null, occMs = null, prefillData
 
   $('evRepeat').value = base.repeat || 'none';
   $('evRepeatUntil').value = base.repeatUntil || '';
-  $('repeatUntilRow').hidden = (base.repeat || 'none') === 'none';
+  $('evRepeatInterval').value = base.interval || 1;
+  $('weekdayPicker').querySelectorAll('.wd-opt').forEach(o => {
+    o.classList.toggle('sel', (base.byDay || []).includes(+o.dataset.wd));
+  });
+  updateRepeatRowsUI();
   $('evReminder').value = (base.reminder === null || base.reminder === undefined) ? '' : String(base.reminder);
   const hasReminder2 = base.reminder2 !== null && base.reminder2 !== undefined;
   $('evReminder2').value = hasReminder2 ? String(base.reminder2) : '';
@@ -869,6 +906,15 @@ function toggleTimeInputs() {
   const allDay = $('evAllDay').checked;
   $('evStartTime').style.display = allDay ? 'none' : '';
   $('evEndTime').style.display = allDay ? 'none' : '';
+}
+
+const REPEAT_UNIT_LABEL = { daily: '天', weekly: '週', monthly: '月', yearly: '年' };
+function updateRepeatRowsUI() {
+  const val = $('evRepeat').value;
+  $('repeatUntilRow').hidden = val === 'none';
+  $('repeatIntervalRow').hidden = !REPEAT_UNIT_LABEL[val];
+  if (REPEAT_UNIT_LABEL[val]) $('repeatIntervalUnit').textContent = REPEAT_UNIT_LABEL[val];
+  $('repeatByDayRow').hidden = val !== 'weekly';
 }
 
 // 地點搜尋:用 OpenStreetMap 的 Nominatim(免費、不用 API 金鑰),按搜尋才查一次,不做即時 autocomplete(符合它的使用規範)
@@ -1003,6 +1049,9 @@ async function saveEvent() {
     color: (selColor && selColor.dataset.color) || null,
     repeat: $('evRepeat').value,
     repeatUntil: $('repeatUntilRow').hidden ? null : ($('evRepeatUntil').value || null),
+    interval: $('repeatIntervalRow').hidden ? null : (Number($('evRepeatInterval').value) || 1),
+    byDay: $('repeatByDayRow').hidden ? null
+      : (() => { const sel = [...$('weekdayPicker').querySelectorAll('.wd-opt.sel')].map(o => +o.dataset.wd); return sel.length ? sel : null; })(),
     reminder: reminderVal === '' ? null : Number(reminderVal),
     reminder2: reminder2Val === '' ? null : Number(reminder2Val),
     location: $('evLocation').value.trim(),
@@ -1014,7 +1063,7 @@ async function saveEvent() {
   // 編輯重複行程的某一次 → 問要改一次還是全部
   const isRepeating = editingEvent && editingEvent.repeat && editingEvent.repeat !== 'none';
   if (isRepeating && editingOccStart) {
-    const scope = await choose('這是重複行程', ['只修改這一次', '修改所有重複']);
+    const scope = await choose('這是重複行程', ['只修改這一次', '這次以後全部', '修改所有重複']);
     if (!scope) return;
     if (scope === '只修改這一次') {
       // 原系列排除這一天,另建一筆獨立行程
@@ -1037,6 +1086,31 @@ async function saveEvent() {
       closeEventForm();
       render();
       toast('已修改這一次 ✅');
+      return;
+    }
+    if (scope === '這次以後全部') {
+      // 原系列在這一次的前一天結束,另外從這一次開始建立新系列,套用表單的新設定(含重複規則本身)
+      const splitYMD = fmtYMD(new Date(editingOccStart));
+      const orig = {
+        ...editingEvent,
+        repeatUntil: fmtYMD(addDays(new Date(editingOccStart), -1)),
+        updatedAt: Date.now(),
+      };
+      const newSeries = {
+        id: db.uid(), ...formVals,
+        start: s.toISOString(), end: e.toISOString(),
+        exdates: (editingEvent.exdates || []).filter(d => d > splitYMD),
+        createdBy: editingEvent.createdBy || sync.getUid(), attendees: editingEvent.attendees || [],
+        deleted: false, updatedAt: Date.now(),
+      };
+      await db.put('events', orig);
+      await db.put('events', newSeries);
+      events = await db.getAll('events');
+      sync.pushEvent(orig);
+      sync.pushEvent(newSeries);
+      closeEventForm();
+      render();
+      toast('已更新這次以後的行程 ✅');
       return;
     }
     // 修改所有重複:保留系列原本的開始「日期」,套用表單的新時間與長度
@@ -1082,7 +1156,7 @@ async function deleteEvent(ev, occMs) {
   if (!ev) return;
   const isRepeating = ev.repeat && ev.repeat !== 'none';
   if (isRepeating && occMs) {
-    const scope = await choose('刪除重複行程', ['只刪除這一次', '刪除整個重複行程']);
+    const scope = await choose('刪除重複行程', ['只刪除這一次', '這次以後全部刪除', '刪除整個重複行程']);
     if (!scope) return;
     if (scope === '只刪除這一次') {
       const updated = {
@@ -1097,6 +1171,21 @@ async function deleteEvent(ev, occMs) {
       closeDetail();
       render();
       toast('已刪除這一次');
+      return;
+    }
+    if (scope === '這次以後全部刪除') {
+      const updated = {
+        ...ev,
+        repeatUntil: fmtYMD(addDays(new Date(occMs), -1)),
+        updatedAt: Date.now(),
+      };
+      await db.put('events', updated);
+      events = await db.getAll('events');
+      sync.pushEvent(updated);
+      closeEventForm();
+      closeDetail();
+      render();
+      toast('已刪除這次以後的行程');
       return;
     }
   } else if (!confirm('確定刪除這個行程?')) return;
@@ -1589,7 +1678,10 @@ function bindUI() {
   $('btnEventSave').onclick = saveEvent;
   $('btnEventDelete').onclick = deleteEvent;
   $('evAllDay').onchange = toggleTimeInputs;
-  $('evRepeat').onchange = () => { $('repeatUntilRow').hidden = $('evRepeat').value === 'none'; };
+  $('evRepeat').onchange = updateRepeatRowsUI;
+  $('weekdayPicker').querySelectorAll('.wd-opt').forEach(o => {
+    o.onclick = () => o.classList.toggle('sel');
+  });
   $('btnAddReminder2').onclick = () => {
     $('reminder2Row').hidden = false;
     $('btnAddReminder2').hidden = true;

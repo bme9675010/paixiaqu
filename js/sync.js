@@ -253,6 +253,7 @@ export const sync = {
         calendarId: ev.calendarId, title: ev.title, allDay: ev.allDay,
         startAt: ev.start, endAt: ev.end,
         repeat: ev.repeat || 'none', repeatUntil: ev.repeatUntil || null, exdates: ev.exdates || [],
+        interval: ev.interval || null, byDay: ev.byDay || null,
         reminder: ev.reminder, reminder2: ev.reminder2 ?? null, color: ev.color || null, location: ev.location || '', url: ev.url || '', notes: ev.notes || '',
         photoIds: ev.photos || [],
         createdBy: ev.createdBy || fb.uid, attendees: ev.attendees || [],
@@ -328,7 +329,7 @@ export const sync = {
           await db.put('events', {
             id: d.id, calendarId: re.calendarId, title: re.title,
             allDay: re.allDay, start: re.startAt, end: re.endAt,
-            repeat: re.repeat, repeatUntil: re.repeatUntil || null, exdates: re.exdates || [], reminder: re.reminder, reminder2: re.reminder2 ?? null, color: re.color || null, location: re.location || '', url: re.url || '', notes: re.notes,
+            repeat: re.repeat, repeatUntil: re.repeatUntil || null, exdates: re.exdates || [], interval: re.interval || null, byDay: re.byDay || null, reminder: re.reminder, reminder2: re.reminder2 ?? null, color: re.color || null, location: re.location || '', url: re.url || '', notes: re.notes,
             photos: photoIds, createdBy: re.createdBy || null, attendees: re.attendees || [],
             deleted: re.deleted, updatedAt: re.updatedAtMs,
           });

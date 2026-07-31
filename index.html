@@ -133,6 +133,28 @@
           </select>
         </div>
 
+        <div class="form-row" id="repeatIntervalRow" hidden>
+          <span class="form-label">間隔</span>
+          <div class="interval-input">
+            <span>每</span>
+            <input type="number" id="evRepeatInterval" min="1" max="99" value="1">
+            <span id="repeatIntervalUnit">天</span>
+          </div>
+        </div>
+
+        <div class="form-row form-col" id="repeatByDayRow" hidden>
+          <span class="form-label">星期幾(可複選,不選則沿用開始日期)</span>
+          <div class="weekday-picker" id="weekdayPicker">
+            <span class="wd-opt" data-wd="0">日</span>
+            <span class="wd-opt" data-wd="1">一</span>
+            <span class="wd-opt" data-wd="2">二</span>
+            <span class="wd-opt" data-wd="3">三</span>
+            <span class="wd-opt" data-wd="4">四</span>
+            <span class="wd-opt" data-wd="5">五</span>
+            <span class="wd-opt" data-wd="6">六</span>
+          </div>
+        </div>
+
         <div class="form-row form-col" id="repeatUntilRow" hidden>
           <div class="form-row" style="padding:0;border:none">
             <span class="form-label">重複結束於</span>

@@ -250,8 +250,10 @@ function buildMonthCells(forMonth) {
         dotOccs = weekdayOccs;
       }
     }
+    // 當天行程數量少、格子有多餘空間時,把 chip 放大顯示更完整的標題;行程多就自動縮回緊湊樣式
+    const sizeCls = !bars && textOccs.length === 1 ? 'chip-roomy' : (!bars && textOccs.length === 2 ? 'chip-cozy' : '');
     let chips = textOccs.slice(0, maxChips).map(o =>
-      `<div class="chip" style="background:${evColor(o.ev)}">${esc(o.ev.title)}</div>`).join('');
+      `<div class="chip ${sizeCls}" style="background:${evColor(o.ev)}">${esc(o.ev.title)}</div>`).join('');
     if (textOccs.length > maxChips) chips += `<div class="chip more">+${textOccs.length - maxChips}</div>`;
     if (dotOccs.length) {
       chips += `<div class="mcell-dots">${dotOccs.map(o =>

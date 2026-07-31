@@ -1443,9 +1443,18 @@ async function importData(file) {
 
 // ── Service Worker ──
 function registerSW() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-  }
+  if (!('serviceWorker' in navigator)) return;
+  // updateViaCache:'none' 讓瀏覽器每次都直接跟網路要 sw.js,不會被 HTTP 快取卡住看不到新版本
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+    .then(reg => reg.update().catch(() => {}))
+    .catch(() => {});
+  // 偵測到新版本接管後自動重新整理一次,不用使用者自己猜要不要關掉重開
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloaded) return;
+    reloaded = true;
+    location.reload();
+  });
 }
 
 // ── 工具 ──

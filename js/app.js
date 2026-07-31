@@ -17,6 +17,7 @@ let selectedDay = new Date(); // 月檢視選取的日期
 let editingEvent = null;      // 編輯中的行程
 let editingOccStart = null;   // 編輯中的重複行程「這一次」的開始時間 (ms)
 let editingPhotos = [];       // 編輯中的照片 [{id, data}]
+let colorAutoMode = false;    // 顏色是否還在「依標題自動建議」狀態(使用者手動選過就關閉)
 let editingCal = null;        // 編輯中的行事曆
 let calFormColor = PALETTE[0];
 let todos = [];
@@ -36,6 +37,12 @@ const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); r
 
 function calById(id) { return calendars.find(c => c.id === id) || { name: '?', color: '#999' }; }
 function evColor(ev) { return ev.color || calById(ev.calendarId).color; }
+// 依標題文字算出固定的顏色(同標題永遠同色),讓使用者不用手動選就有不同行程不同顏色的效果
+function titleColor(title) {
+  let h = 0;
+  for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) >>> 0;
+  return PALETTE[h % PALETTE.length];
+}
 
 // ── 重複行程展開:回傳指定範圍內的「行程實例」 ──
 function occurrencesInRange(rangeStart, rangeEnd) {
@@ -719,17 +726,26 @@ async function openEventForm(ev = null, preset = null, occMs = null, prefillData
     };
   });
 
-  const evColorVal = base.color || '';
+  // 新行程還沒手動選過顏色時,依標題自動建議一個顏色(同標題永遠同色),使用者不用手動點也能有不同行程不同顏色
+  colorAutoMode = !ev && !base.color;
+  const evColorVal = base.color || (colorAutoMode ? titleColor(base.title || '') : '');
   $('colorPicker').innerHTML = `<span class="color-swatch auto ${evColorVal ? '' : 'sel'}" data-color="" title="跟隨行事曆">A</span>`
     + PALETTE.map(c => `<span class="color-swatch ${c === evColorVal ? 'sel' : ''}" data-color="${c}" style="background:${c}"></span>`).join('');
   $('colorPicker').querySelectorAll('.color-swatch').forEach(o => {
     o.onclick = () => {
+      colorAutoMode = false;
       $('colorPicker').querySelectorAll('.color-swatch').forEach(x => x.classList.remove('sel'));
       o.classList.add('sel');
     };
   });
 
   $('evTitle').value = base.title || '';
+  $('evTitle').oninput = () => {
+    if (!colorAutoMode) return;
+    const suggested = titleColor($('evTitle').value);
+    $('colorPicker').querySelectorAll('.color-swatch').forEach(x =>
+      x.classList.toggle('sel', x.dataset.color === suggested));
+  };
   $('evAllDay').checked = !!base.allDay;
 
   let s, e;
@@ -1523,10 +1539,12 @@ function bindUI() {
     el.addEventListener('click', (e) => {
       if (e.target === el && Date.now() - openedAt > 300) el.classList.remove('open');
     });
-    // 往下拖拉手把可直接關閉,不用特地按取消
+    // 往下拖拉手把或標題列可直接關閉,不用特地按取消(在按鈕/輸入框上按下時不觸發,不影響原本點擊)
     const sheet = el.querySelector('.sheet');
     const handle = el.querySelector('.sheet-handle');
-    if (sheet && handle) {
+    const header = el.querySelector('.sheet-header');
+    const dragZones = [handle, header].filter(Boolean);
+    if (sheet && dragZones.length) {
       let startY = 0, dragging = false;
       const begin = (y) => {
         dragging = true; startY = y;
@@ -1545,19 +1563,25 @@ function bindUI() {
         sheet.style.transform = '';
         if (dy > 70) el.classList.remove('open');
       };
-      // iOS 上原生的滑動手勢會搶走 pointer 事件,改用 touch 事件並在拖動時 preventDefault
-      handle.addEventListener('touchstart', (e) => begin(e.touches[0].clientY), { passive: true });
-      handle.addEventListener('touchmove', (e) => { if (dragging) e.preventDefault(); move(e.touches[0].clientY); }, { passive: false });
-      handle.addEventListener('touchend', (e) => end(e.changedTouches[0].clientY));
-      handle.addEventListener('touchcancel', (e) => end(e.changedTouches[0].clientY));
-      // 桌面滑鼠(測試/預覽用)
-      handle.addEventListener('mousedown', (e) => {
-        begin(e.clientY);
-        const onMove = (e2) => move(e2.clientY);
-        const onUp = (e2) => { end(e2.clientY); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
-      });
+      for (const zone of dragZones) {
+        // iOS 上原生的滑動手勢會搶走 pointer 事件,改用 touch 事件並在拖動時 preventDefault
+        zone.addEventListener('touchstart', (e) => {
+          if (e.target.closest('button, input, select, textarea, a')) return;
+          begin(e.touches[0].clientY);
+        }, { passive: true });
+        zone.addEventListener('touchmove', (e) => { if (dragging) e.preventDefault(); move(e.touches[0].clientY); }, { passive: false });
+        zone.addEventListener('touchend', (e) => end(e.changedTouches[0].clientY));
+        zone.addEventListener('touchcancel', (e) => end(e.changedTouches[0].clientY));
+        // 桌面滑鼠(測試/預覽用)
+        zone.addEventListener('mousedown', (e) => {
+          if (e.target.closest('button, input, select, textarea, a')) return;
+          begin(e.clientY);
+          const onMove = (e2) => move(e2.clientY);
+          const onUp = (e2) => { end(e2.clientY); document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup', onUp);
+        });
+      }
     }
   }
 

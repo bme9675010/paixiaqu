@@ -385,6 +385,7 @@ input[type=text] { -webkit-user-select: text; user-select: text; }
 .detail-edit { background: var(--accent); color: #fff; }
 .detail-close { background: var(--surface2); color: var(--text); }
 .detail-dup { background: var(--surface2); color: var(--text); }
+.detail-delete { flex: 0 0 44px; padding: 12px 0 !important; background: var(--surface2); color: #e5484d; }
 
 /* ── 複製到其他日期 ── */
 .copy-dates-nav { display: flex; align-items: center; justify-content: center; gap: 20px; font-weight: 700; font-size: 15px; padding: 4px 0 8px; }

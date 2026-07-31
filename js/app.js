@@ -634,6 +634,7 @@ async function showDetail(id, occMs) {
     ${photosHtml}
     ${attendeeHtml}
     <div class="detail-actions">
+      <button class="detail-delete" id="btnDetailDelete" title="刪除行程">🗑️</button>
       <button class="detail-close" id="btnDetailClose">關閉</button>
       <button class="detail-dup" id="btnDetailDup">複製</button>
       <button class="detail-edit" id="btnDetailEdit">編輯</button>
@@ -641,6 +642,7 @@ async function showDetail(id, occMs) {
     ${commentsHtml}`;
   $('detailBackdrop').classList.add('open');
   $('btnDetailClose').onclick = closeDetail;
+  $('btnDetailDelete').onclick = () => deleteEvent(ev, occMs);
   $('btnDetailEdit').onclick = () => {
     closeDetail();
     openEventForm(ev, null, occMs);
@@ -919,33 +921,37 @@ async function saveEvent() {
   toast(editingEvent ? '已更新' : '已新增行程 ✅');
 }
 
-async function deleteEvent() {
-  if (!editingEvent) return;
-  const isRepeating = editingEvent.repeat && editingEvent.repeat !== 'none';
-  if (isRepeating && editingOccStart) {
+async function deleteEvent(ev, occMs) {
+  ev = ev || editingEvent;
+  occMs = occMs !== undefined ? occMs : editingOccStart;
+  if (!ev) return;
+  const isRepeating = ev.repeat && ev.repeat !== 'none';
+  if (isRepeating && occMs) {
     const scope = await choose('刪除重複行程', ['只刪除這一次', '刪除整個重複行程']);
     if (!scope) return;
     if (scope === '只刪除這一次') {
-      const ev = {
-        ...editingEvent,
-        exdates: [...(editingEvent.exdates || []), fmtYMD(new Date(editingOccStart))],
+      const updated = {
+        ...ev,
+        exdates: [...(ev.exdates || []), fmtYMD(new Date(occMs))],
         updatedAt: Date.now(),
       };
-      await db.put('events', ev);
+      await db.put('events', updated);
       events = await db.getAll('events');
-      sync.pushEvent(ev);
+      sync.pushEvent(updated);
       closeEventForm();
+      closeDetail();
       render();
       toast('已刪除這一次');
       return;
     }
   } else if (!confirm('確定刪除這個行程?')) return;
-  const ev = { ...editingEvent, deleted: true, updatedAt: Date.now() };
-  await db.put('events', ev);
-  if (ev.photos) for (const pid of ev.photos) await db.del('photos', pid);
+  const updated = { ...ev, deleted: true, updatedAt: Date.now() };
+  await db.put('events', updated);
+  if (updated.photos) for (const pid of updated.photos) await db.del('photos', pid);
   events = await db.getAll('events');
-  sync.pushEvent(ev);
+  sync.pushEvent(updated);
   closeEventForm();
+  closeDetail();
   render();
   toast('已刪除');
 }

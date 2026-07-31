@@ -160,12 +160,10 @@ function renderTitle() {
 }
 
 // ── 月檢視 ──
-function renderMonth() {
-  const wr = $('weekdayRow');
-  wr.innerHTML = WEEKDAYS.map((w, i) =>
-    `<span class="${i === 0 ? 'wd-sun' : i === 6 ? 'wd-sat' : ''}">${w}</span>`).join('');
-
-  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+// 把「畫出某個月份的 42 格 HTML」跟「刷新真正畫面上的月曆」拆開,
+// 這樣左右滑動時可以額外畫一份上/下個月的格子當作拖曳預覽,放開手指才真的切換月份。
+function buildMonthCells(forMonth) {
+  const first = new Date(forMonth.getFullYear(), forMonth.getMonth(), 1);
   const gridStart = startOfWeek(first);
   const cells = [];
   const today = new Date();
@@ -198,7 +196,7 @@ function renderMonth() {
     const d = addDays(gridStart, i);
     const dYMD = fmtYMD(d);
     const dayOccs = occs.filter(o => o.start <= endOfDay(d) && o.end >= startOfDay(d));
-    const isOther = d.getMonth() !== cursor.getMonth();
+    const isOther = d.getMonth() !== forMonth.getMonth();
     const holiday = HOLIDAYS[dYMD];
     const cls = ['mcell'];
     if (isOther) cls.push('other');
@@ -244,7 +242,15 @@ function renderMonth() {
     }
     cells.push(`<div class="${cls.join(' ')}" data-date="${dYMD}"><div class="mcell-num">${d.getDate()}</div>${holHtml}${bars}${chips}</div>`);
   }
-  $('monthGrid').innerHTML = cells.join('');
+  return cells.join('');
+}
+
+function renderMonth() {
+  const wr = $('weekdayRow');
+  wr.innerHTML = WEEKDAYS.map((w, i) =>
+    `<span class="${i === 0 ? 'wd-sun' : i === 6 ? 'wd-sat' : ''}">${w}</span>`).join('');
+
+  $('monthGrid').innerHTML = buildMonthCells(cursor);
   $('monthGrid').querySelectorAll('.mcell').forEach(c => {
     c.onclick = () => {
       const [y, m, dd] = c.dataset.date.split('-').map(Number);
@@ -1635,10 +1641,10 @@ function bindUI() {
     }
   }
 
-  // 左右滑動換月/週/日
+  // 左右滑動換週/日(月檢視改用下面貼著手指走的版本)
   let touchX = null, touchY = null;
   document.addEventListener('touchstart', (e) => {
-    if (e.target.closest('.sheet, .page, .week-scroll')) { touchX = null; return; }
+    if (e.target.closest('.sheet, .page, .week-scroll, .month-swipe')) { touchX = null; return; }
     touchX = e.touches[0].clientX; touchY = e.touches[0].clientY;
   }, { passive: true });
   document.addEventListener('touchend', (e) => {
@@ -1648,6 +1654,78 @@ function bindUI() {
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) navigate(dx < 0 ? 1 : -1);
     touchX = null;
   }, { passive: true });
+
+  // 月檢視左右拖曳:內容跟著手指即時滑動,放開手指才真的切換月份,拖不夠遠會彈回原位
+  initMonthSwipe();
+}
+
+function initMonthSwipe() {
+  const wrap = $('monthSwipe');
+  const grid = $('monthGrid');
+  let startX = 0, startY = 0, dragging = false, peek = null, dir = 0, width = 0;
+
+  const cleanupPeek = () => { if (peek) { peek.remove(); peek = null; } };
+
+  wrap.addEventListener('touchstart', (e) => {
+    if (view !== 'month') return;
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+    dragging = false;
+    width = wrap.clientWidth;
+  }, { passive: true });
+
+  wrap.addEventListener('touchmove', (e) => {
+    if (view !== 'month') return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+    if (!dragging) {
+      if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy) * 1.5) return; // 還看不出是水平拖曳,先不介入(不擋掉點擊/垂直捲動)
+      dragging = true;
+      dir = dx < 0 ? 1 : -1; // 1=下一個月(往左滑),-1=上一個月(往右滑)
+      const peekMonth = new Date(cursor.getFullYear(), cursor.getMonth() + dir, 1);
+      peek = document.createElement('div');
+      peek.className = 'month-grid peek';
+      peek.innerHTML = buildMonthCells(peekMonth);
+      peek.style.transform = `translateX(${dir * width}px)`;
+      wrap.appendChild(peek);
+    }
+    e.preventDefault();
+    grid.style.transition = 'none';
+    if (peek) peek.style.transition = 'none';
+    grid.style.transform = `translateX(${dx}px)`;
+    if (peek) peek.style.transform = `translateX(${dir * width + dx}px)`;
+  }, { passive: false });
+
+  wrap.addEventListener('touchend', (e) => {
+    if (view !== 'month' || !dragging) { dragging = false; return; }
+    dragging = false;
+    const dx = e.changedTouches[0].clientX - startX;
+    const commit = Math.abs(dx) > Math.min(90, width * 0.25);
+    grid.style.transition = 'transform .22s ease-out';
+    if (peek) peek.style.transition = 'transform .22s ease-out';
+    if (commit) {
+      grid.style.transform = `translateX(${-dir * width}px)`;
+      if (peek) peek.style.transform = 'translateX(0)';
+      setTimeout(() => {
+        cursor = new Date(cursor.getFullYear(), cursor.getMonth() + dir, 1);
+        grid.style.transition = 'none';
+        grid.style.transform = '';
+        cleanupPeek();
+        renderTitle();
+        renderMonth();
+      }, 220);
+    } else {
+      grid.style.transform = '';
+      if (peek) peek.style.transform = `translateX(${dir * width}px)`;
+      setTimeout(cleanupPeek, 220);
+    }
+  });
+
+  wrap.addEventListener('touchcancel', () => {
+    dragging = false;
+    grid.style.transition = 'none';
+    grid.style.transform = '';
+    cleanupPeek();
+  });
 }
 
 init();

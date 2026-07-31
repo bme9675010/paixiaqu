@@ -82,10 +82,14 @@ body {
 }
 .weekday-row .wd-sun { color: #e5484d; }
 .weekday-row .wd-sat { color: #3b82f6; }
-.month-grid {
-  flex: 1.4; display: grid; grid-template-columns: repeat(7, 1fr);
-  grid-auto-rows: 1fr; background: var(--surface); min-height: 0;
+.month-swipe {
+  flex: 1.4; min-height: 0; position: relative; overflow: hidden;
 }
+.month-grid {
+  position: absolute; inset: 0; display: grid; grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: 1fr; background: var(--surface);
+}
+.month-grid.peek { pointer-events: none; }
 .mcell {
   border-top: 1px solid var(--line); border-right: 1px solid var(--line);
   padding: 3px 2px 1px; overflow: hidden; cursor: pointer;

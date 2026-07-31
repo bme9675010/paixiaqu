@@ -35,6 +35,7 @@ const startOfWeek = d => { const x = startOfDay(d); x.setDate(x.getDate() - x.ge
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
 function calById(id) { return calendars.find(c => c.id === id) || { name: '?', color: '#999' }; }
+function evColor(ev) { return ev.color || calById(ev.calendarId).color; }
 
 // ── 重複行程展開:回傳指定範圍內的「行程實例」 ──
 function occurrencesInRange(rangeStart, rangeEnd) {
@@ -150,9 +151,10 @@ function renderMonth() {
 
   for (let i = 0; i < 42; i++) {
     const d = addDays(gridStart, i);
+    const dYMD = fmtYMD(d);
     const dayOccs = occs.filter(o => o.start <= endOfDay(d) && o.end >= startOfDay(d));
     const isOther = d.getMonth() !== cursor.getMonth();
-    const holiday = HOLIDAYS[fmtYMD(d)];
+    const holiday = HOLIDAYS[dYMD];
     const cls = ['mcell'];
     if (isOther) cls.push('other');
     if (sameDay(d, today)) cls.push('today');
@@ -165,17 +167,34 @@ function renderMonth() {
       ? `<div class="mcell-holname">${holiday}</div>`
       : (lunar ? `<div class="mcell-lunar">${lunar}</div>` : '');
     const maxChips = holHtml ? 2 : 3;
+
+    // 單一行程跨多天(如「花蓮三天二夜」)→ 畫成連續色塊,週內不中斷,只在每列開頭顯示標題
+    const multiDayOccs = dayOccs.filter(o => fmtYMD(o.start) !== fmtYMD(o.end));
+    const singleDayOccs = dayOccs.filter(o => fmtYMD(o.start) === fmtYMD(o.end));
+    const isRowStartCol = i % 7 === 0;
+    const isRowEndCol = i % 7 === 6;
+    const bars = multiDayOccs.map(o => {
+      const isTrueStart = dYMD === fmtYMD(o.start);
+      const isTrueEnd = dYMD === fmtYMD(o.end);
+      const rowStart = isRowStartCol || isTrueStart;
+      const rowEnd = isRowEndCol || isTrueEnd;
+      const barCls = ['mday-bar'];
+      if (isTrueStart) barCls.push('round-l'); else if (!rowStart) barCls.push('bleed-l');
+      if (isTrueEnd) barCls.push('round-r'); else if (!rowEnd) barCls.push('bleed-r');
+      return `<div class="${barCls.join(' ')}" style="background:${evColor(o.ev)}">${rowStart ? esc(o.ev.title) : ''}</div>`;
+    }).join('');
+
     // 每個工作日重複的行程(通常是天天出現的短提醒)改用小圓點,把文字空間留給真正的當天行程
-    const dotOccs = dayOccs.filter(o => o.ev.repeat === 'weekday');
-    const textOccs = dayOccs.filter(o => o.ev.repeat !== 'weekday');
+    const dotOccs = singleDayOccs.filter(o => o.ev.repeat === 'weekday');
+    const textOccs = singleDayOccs.filter(o => o.ev.repeat !== 'weekday');
     let chips = textOccs.slice(0, maxChips).map(o =>
-      `<div class="chip" style="background:${calById(o.ev.calendarId).color}">${esc(o.ev.title)}</div>`).join('');
+      `<div class="chip" style="background:${evColor(o.ev)}">${esc(o.ev.title)}</div>`).join('');
     if (textOccs.length > maxChips) chips += `<div class="chip more">+${textOccs.length - maxChips}</div>`;
     if (dotOccs.length) {
       chips += `<div class="mcell-dots">${dotOccs.map(o =>
-        `<span class="mdot" style="background:${calById(o.ev.calendarId).color}"></span>`).join('')}</div>`;
+        `<span class="mdot" style="background:${evColor(o.ev)}"></span>`).join('')}</div>`;
     }
-    cells.push(`<div class="${cls.join(' ')}" data-date="${fmtYMD(d)}"><div class="mcell-num">${d.getDate()}</div>${holHtml}${chips}</div>`);
+    cells.push(`<div class="${cls.join(' ')}" data-date="${dYMD}"><div class="mcell-num">${d.getDate()}</div>${holHtml}${bars}${chips}</div>`);
   }
   $('monthGrid').innerHTML = cells.join('');
   $('monthGrid').querySelectorAll('.mcell').forEach(c => {
@@ -214,7 +233,7 @@ function renderDayPanel() {
     const time = o.ev.allDay ? '全天' : `${fmtHM(o.start)} - ${fmtHM(o.end)}`;
     const icons = [o.ev.location ? '📍' : '', (o.ev.photos && o.ev.photos.length) ? '📎' : '', o.ev.url ? '🔗' : '', o.ev.notes ? '📝' : '', (o.ev.repeat && o.ev.repeat !== 'none') ? '🔁' : ''].join('');
     return `<div class="ev-row" data-id="${o.ev.id}" data-occ="${o.start.getTime()}">
-      <div class="ev-row-bar" style="background:${cal.color}"></div>
+      <div class="ev-row-bar" style="background:${evColor(o.ev)}"></div>
       <div class="ev-row-main">
         <div class="ev-row-title">${esc(o.ev.title)}</div>
         <div class="ev-row-time">${time} · ${esc(cal.name)}</div>
@@ -269,7 +288,7 @@ function timedEventsHtml(occs, d) {
     const timeLabel = sameDay(it.o.start, it.o.end)
       ? `${fmtHM(it.o.start)}${it.total > 2 ? '' : ' - ' + fmtHM(it.o.end)}`
       : fmtHM(it.o.start);
-    html += `<div class="tl-event" data-id="${it.o.ev.id}" data-occ="${it.o.start.getTime()}" style="top:${top}px;height:${height}px;left:calc(${it.col * w}% + 2px);width:calc(${w}% - 5px);background:${calById(it.o.ev.calendarId).color}"><b>${esc(it.o.ev.title)}</b><span class="tl-time">${timeLabel}</span></div>`;
+    html += `<div class="tl-event" data-id="${it.o.ev.id}" data-occ="${it.o.start.getTime()}" style="top:${top}px;height:${height}px;left:calc(${it.col * w}% + 2px);width:calc(${w}% - 5px);background:${evColor(it.o.ev)}"><b>${esc(it.o.ev.title)}</b><span class="tl-time">${timeLabel}</span></div>`;
   }
   return html;
 }
@@ -284,7 +303,7 @@ function renderWeek() {
   const alldayOccs = occs.filter(o => o.ev.allDay);
   $('weekAllday').innerHTML = alldayOccs.length
     ? `<span class="allday-label">全天</span>` + alldayOccs.map(o =>
-        `<span class="allday-chip" data-id="${o.ev.id}" data-occ="${o.start.getTime()}" style="background:${calById(o.ev.calendarId).color}">${o.start.getMonth() + 1}/${o.start.getDate()} ${esc(o.ev.title)}</span>`).join('')
+        `<span class="allday-chip" data-id="${o.ev.id}" data-occ="${o.start.getTime()}" style="background:${evColor(o.ev)}">${o.start.getMonth() + 1}/${o.start.getDate()} ${esc(o.ev.title)}</span>`).join('')
     : '';
 
   // 時間欄
@@ -354,7 +373,7 @@ function renderDay() {
   const alldayOccs = occs.filter(o => o.ev.allDay);
   $('dayAllday').innerHTML = alldayOccs.length
     ? `<span class="allday-label">全天</span>` + alldayOccs.map(o =>
-        `<span class="allday-chip" data-id="${o.ev.id}" data-occ="${o.start.getTime()}" style="background:${calById(o.ev.calendarId).color}">${esc(o.ev.title)}</span>`).join('')
+        `<span class="allday-chip" data-id="${o.ev.id}" data-occ="${o.start.getTime()}" style="background:${evColor(o.ev)}">${esc(o.ev.title)}</span>`).join('')
     : '';
 
   let lines = '';
@@ -700,6 +719,16 @@ async function openEventForm(ev = null, preset = null, occMs = null, prefillData
     };
   });
 
+  const evColorVal = base.color || '';
+  $('colorPicker').innerHTML = `<span class="color-swatch auto ${evColorVal ? '' : 'sel'}" data-color="" title="跟隨行事曆">A</span>`
+    + PALETTE.map(c => `<span class="color-swatch ${c === evColorVal ? 'sel' : ''}" data-color="${c}" style="background:${c}"></span>`).join('');
+  $('colorPicker').querySelectorAll('.color-swatch').forEach(o => {
+    o.onclick = () => {
+      $('colorPicker').querySelectorAll('.color-swatch').forEach(x => x.classList.remove('sel'));
+      o.classList.add('sel');
+    };
+  });
+
   $('evTitle').value = base.title || '';
   $('evAllDay').checked = !!base.allDay;
 
@@ -842,10 +871,12 @@ async function saveEvent() {
   const reminder2Val = $('reminder2Row').hidden ? '' : $('evReminder2').value;
   let url = $('evUrl').value.trim();
   if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url;
+  const selColor = $('colorPicker').querySelector('.color-swatch.sel');
   const formVals = {
     calendarId,
     title,
     allDay,
+    color: (selColor && selColor.dataset.color) || null,
     repeat: $('evRepeat').value,
     repeatUntil: $('repeatUntilRow').hidden ? null : ($('evRepeatUntil').value || null),
     reminder: reminderVal === '' ? null : Number(reminderVal),
@@ -1019,7 +1050,7 @@ async function confirmCopyDates() {
     const newStart = new Date(y, m - 1, dd, origStart.getHours(), origStart.getMinutes(), 0, 0);
     const newEnd = new Date(newStart.getTime() + durMs);
     const clone = {
-      id: db.uid(), calendarId: ev.calendarId, title: ev.title, allDay: ev.allDay,
+      id: db.uid(), calendarId: ev.calendarId, title: ev.title, allDay: ev.allDay, color: ev.color || null,
       start: newStart.toISOString(), end: newEnd.toISOString(),
       repeat: 'none', exdates: [], reminder: ev.reminder, reminder2: ev.reminder2 ?? null,
       location: ev.location || '', url: ev.url || '', notes: ev.notes || '', photos: ev.photos || [],
@@ -1317,7 +1348,7 @@ function runSearch() {
       + (ev.allDay ? ' 全天' : ' ' + fmtHM(s))
       + ((ev.repeat && ev.repeat !== 'none') ? ' 🔁' : '');
     return `<div class="ev-row" data-id="${ev.id}" data-start="${ev.start}">
-      <div class="ev-row-bar" style="background:${cal.color}"></div>
+      <div class="ev-row-bar" style="background:${evColor(ev)}"></div>
       <div class="ev-row-main">
         <div class="ev-row-title">${esc(ev.title)}</div>
         <div class="ev-row-time">${dateStr} · ${esc(cal.name)}</div>
@@ -1492,6 +1523,33 @@ function bindUI() {
     el.addEventListener('click', (e) => {
       if (e.target === el && Date.now() - openedAt > 300) el.classList.remove('open');
     });
+    // 往下拖拉手把可直接關閉,不用特地按取消
+    const sheet = el.querySelector('.sheet');
+    const handle = el.querySelector('.sheet-handle');
+    if (sheet && handle) {
+      let startY = 0, dragging = false;
+      const onMove = (e) => {
+        if (!dragging) return;
+        const dy = Math.max(0, e.clientY - startY);
+        sheet.style.transform = dy ? `translateY(${dy}px)` : '';
+      };
+      const onEnd = (e) => {
+        if (!dragging) return;
+        dragging = false;
+        sheet.style.transition = '';
+        const dy = Math.max(0, e.clientY - startY);
+        sheet.style.transform = '';
+        if (dy > 90) el.classList.remove('open');
+      };
+      handle.addEventListener('pointerdown', (e) => {
+        dragging = true; startY = e.clientY;
+        sheet.style.transition = 'none';
+        handle.setPointerCapture(e.pointerId);
+      });
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onEnd);
+      handle.addEventListener('pointercancel', onEnd);
+    }
   }
 
   // 左右滑動換月/週/日

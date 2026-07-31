@@ -113,6 +113,14 @@ body {
 .chip.more { background: none !important; color: var(--text2); text-align: center; padding: 0; }
 .mcell-dots { display: flex; flex-wrap: wrap; gap: 2px; margin-top: auto; padding-top: 1px; }
 .mdot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.mday-bar {
+  font-size: 10px; line-height: 1.35; padding: 1px 4px; color: #fff; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; position: relative;
+}
+.mday-bar.round-l { border-top-left-radius: 5px; border-bottom-left-radius: 5px; }
+.mday-bar.round-r { border-top-right-radius: 5px; border-bottom-right-radius: 5px; }
+.mday-bar.bleed-l { margin-left: -2px; }
+.mday-bar.bleed-r { margin-right: -2px; }
 .mcell.hol .mcell-num { color: #e5484d; }
 .mcell.today.hol .mcell-num { color: #fff; }
 .mcell-holname {
@@ -278,6 +286,15 @@ input[type=text] { -webkit-user-select: text; user-select: text; }
 }
 .cal-opt.sel { border-color: var(--accent); }
 .cal-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+.color-picker { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.color-swatch {
+  width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+  border: 2px solid transparent; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px;
+}
+.color-swatch.sel { border-color: var(--text); }
+.color-swatch.auto { background: var(--surface2) !important; color: var(--text2); font-size: 9px; }
 
 .photo-strip { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .photo-thumb {

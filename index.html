@@ -46,14 +46,19 @@
     <div class="month-swipe" id="monthSwipe">
       <div class="month-grid" id="monthGrid"></div>
     </div>
-    <div class="day-events-panel" id="dayEventsPanel">
-      <div class="day-events-header">
-        <span id="dayEventsHeader"></span>
-        <button class="day-add-btn" id="btnDayAdd" title="新增當天行程">＋</button>
-      </div>
-      <div class="day-events-list" id="dayEventsList"></div>
-    </div>
   </section>
+
+  <!-- 當天行程總表(月檢視格子點兩下跳出) -->
+  <div class="sheet-backdrop" id="dayAgendaBackdrop">
+    <div class="sheet sheet-auto" id="dayAgendaSheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <span class="sheet-title" id="dayAgendaTitle"></span>
+        <button class="day-add-btn" id="btnDayAgendaAdd" title="新增當天行程">＋</button>
+      </div>
+      <div class="sheet-body" id="dayAgendaList"></div>
+    </div>
+  </div>
 
   <!-- 週檢視(垂直時間軸) -->
   <section id="viewWeek" class="view">

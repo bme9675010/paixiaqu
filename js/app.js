@@ -252,14 +252,12 @@ function renderMonth() {
 
   $('monthGrid').innerHTML = buildMonthCells(cursor);
   $('monthGrid').querySelectorAll('.mcell').forEach(c => {
-    c.onclick = () => {
+    const cellDate = () => {
       const [y, m, dd] = c.dataset.date.split('-').map(Number);
-      const clicked = new Date(y, m - 1, dd);
-      if (sameDay(clicked, selectedDay)) {
-        // 再點一次已選取的日期 → 直接新增當天行程
-        openEventForm(null, { date: clicked });
-        return;
-      }
+      return new Date(y, m - 1, dd);
+    };
+    c.onclick = () => {
+      const clicked = cellDate();
       selectedDay = clicked;
       if (selectedDay.getMonth() !== cursor.getMonth()) {
         cursor = new Date(selectedDay);
@@ -267,22 +265,21 @@ function renderMonth() {
       }
       renderMonth();
     };
+    c.ondblclick = () => {
+      selectedDay = cellDate();
+      openDayAgenda(selectedDay);
+    };
   });
-  renderDayPanel();
 }
 
-function renderDayPanel() {
-  const d = selectedDay;
+// 月檢視格子點兩下 → 跳出當天完整行程總表(sheet,往下滑可關閉)
+function openDayAgenda(d) {
   const lunar = lunarFullLabel(d);
   const hol = HOLIDAYS[fmtYMD(d)];
-  $('dayEventsHeader').textContent = `${d.getMonth() + 1}月${d.getDate()}日 (${WEEKDAYS[d.getDay()]})`
+  $('dayAgendaTitle').textContent = `${d.getMonth() + 1}月${d.getDate()}日 (${WEEKDAYS[d.getDay()]})`
     + (lunar ? ` · ${lunar}` : '') + (hol ? ` · ${hol} 🎉` : '');
   const occs = occurrencesOnDay(d);
-  if (!occs.length) {
-    $('dayEventsList').innerHTML = `<div class="empty-hint">沒有行程,按「＋」新增</div>`;
-    return;
-  }
-  $('dayEventsList').innerHTML = occs.map(o => {
+  $('dayAgendaList').innerHTML = occs.length ? occs.map(o => {
     const cal = calById(o.ev.calendarId);
     const time = o.ev.allDay ? '全天' : `${fmtHM(o.start)} - ${fmtHM(o.end)}`;
     const icons = [o.ev.location ? '📍' : '', (o.ev.photos && o.ev.photos.length) ? '📎' : '', o.ev.url ? '🔗' : '', o.ev.notes ? '📝' : '', (o.ev.repeat && o.ev.repeat !== 'none') ? '🔁' : ''].join('');
@@ -294,10 +291,11 @@ function renderDayPanel() {
       </div>
       <div class="ev-row-icons">${icons}</div>
     </div>`;
-  }).join('');
-  $('dayEventsList').querySelectorAll('.ev-row').forEach(r => {
-    r.onclick = () => showDetail(r.dataset.id, +r.dataset.occ);
+  }).join('') : `<div class="empty-hint">沒有行程,按「＋」新增</div>`;
+  $('dayAgendaList').querySelectorAll('.ev-row').forEach(r => {
+    r.onclick = () => { $('dayAgendaBackdrop').classList.remove('open'); showDetail(r.dataset.id, +r.dataset.occ); };
   });
+  $('dayAgendaBackdrop').classList.add('open');
 }
 
 // ── 重疊行程並排:回傳每筆的 {col, total}(同時段的行程分欄顯示) ──
@@ -1519,7 +1517,10 @@ function bindUI() {
     if (view !== 'month') selectedDay = new Date(cursor);
     openEventForm();
   };
-  $('btnDayAdd').onclick = () => openEventForm(null, { date: selectedDay });
+  $('btnDayAgendaAdd').onclick = () => {
+    $('dayAgendaBackdrop').classList.remove('open');
+    openEventForm(null, { date: selectedDay });
+  };
 
   $('btnEventCancel').onclick = closeEventForm;
   $('btnEventSave').onclick = saveEvent;
@@ -1587,7 +1588,7 @@ function bindUI() {
   $('searchInput').oninput = runSearch;
 
   // 點背景關閉 sheet(開啟後 300ms 內忽略,避免點擊穿透)
-  for (const id of ['eventSheetBackdrop', 'detailBackdrop', 'calSheetBackdrop', 'searchBackdrop', 'copyDatesBackdrop']) {
+  for (const id of ['eventSheetBackdrop', 'detailBackdrop', 'calSheetBackdrop', 'searchBackdrop', 'copyDatesBackdrop', 'dayAgendaBackdrop']) {
     const el = $(id);
     let openedAt = 0;
     new MutationObserver(() => { if (el.classList.contains('open')) openedAt = Date.now(); })

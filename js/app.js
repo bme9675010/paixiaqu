@@ -177,12 +177,14 @@ function render() {
   renderTitle();
   if (view === 'month') renderMonth();
   else if (view === 'week') renderWeek();
+  else if (view === 'year') renderYear();
   else renderDay();
 }
 
 function renderTitle() {
   const y = cursor.getFullYear(), m = cursor.getMonth() + 1;
   if (view === 'day') $('titleText').textContent = `${y}年${m}月${cursor.getDate()}日 (${WEEKDAYS[cursor.getDay()]})`;
+  else if (view === 'year') $('titleText').textContent = `${y}年`;
   else $('titleText').textContent = `${y}年${m}月`;
 }
 
@@ -395,6 +397,52 @@ function timedEventsHtml(occs, d) {
     html += `<div class="tl-event" data-id="${it.o.ev.id}" data-occ="${it.o.start.getTime()}" style="top:${top}px;height:${height}px;left:calc(${it.col * w}% + 2px);width:calc(${w}% - 5px);background:${evColor(it.o.ev)}"><b>${esc(it.o.ev.title)}</b><span class="tl-time">${timeLabel}</span></div>`;
   }
   return html;
+}
+
+// ── 年檢視:12 個迷你月曆,有行程的日期標小點 ──
+function renderYear() {
+  const year = cursor.getFullYear();
+  const yearStart = new Date(year, 0, 1);
+  const yearEnd = new Date(year, 11, 31, 23, 59, 59, 999);
+  const occs = occurrencesInRange(yearStart, yearEnd);
+  const eventDays = new Set();
+  for (const o of occs) {
+    let d = startOfDay(o.start);
+    const endD = startOfDay(o.end);
+    for (let guard = 0; d <= endD && guard < 400; guard++) { eventDays.add(fmtYMD(d)); d = addDays(d, 1); }
+  }
+  const today = new Date();
+  let html = '';
+  for (let m = 0; m < 12; m++) {
+    const first = new Date(year, m, 1);
+    const leading = first.getDay();
+    const daysInMonth = new Date(year, m + 1, 0).getDate();
+    const totalCells = Math.ceil((leading + daysInMonth) / 7) * 7;
+    let cellsHtml = '';
+    for (let i = 0; i < totalCells; i++) {
+      const dayNum = i - leading + 1;
+      if (dayNum < 1 || dayNum > daysInMonth) { cellsHtml += `<span class="ymcell empty"></span>`; continue; }
+      const d = new Date(year, m, dayNum);
+      const ymd = fmtYMD(d);
+      const cls = ['ymcell'];
+      if (sameDay(d, today)) cls.push('today');
+      if (eventDays.has(ymd)) cls.push('has-ev');
+      cellsHtml += `<span class="${cls.join(' ')}" data-date="${ymd}">${dayNum}</span>`;
+    }
+    html += `<div class="year-month">
+      <div class="year-month-title">${m + 1}月</div>
+      <div class="year-month-grid">${cellsHtml}</div>
+    </div>`;
+  }
+  $('yearGrid').innerHTML = html;
+  $('yearGrid').querySelectorAll('.ymcell[data-date]').forEach(c => {
+    c.onclick = () => {
+      const [y, m, dd] = c.dataset.date.split('-').map(Number);
+      cursor = new Date(y, m - 1, 1);
+      selectedDay = new Date(y, m - 1, dd);
+      setView('month');
+    };
+  });
 }
 
 // ── 週檢視(垂直時間軸) ──
@@ -655,6 +703,7 @@ function setView(v) {
 function navigate(dir) {
   if (view === 'month') { cursor = new Date(cursor.getFullYear(), cursor.getMonth() + dir, 1); }
   else if (view === 'week') { cursor = addDays(cursor, dir * 7); }
+  else if (view === 'year') { cursor = new Date(cursor.getFullYear() + dir, cursor.getMonth(), 1); }
   else { cursor = addDays(cursor, dir); selectedDay = new Date(cursor); }
   render();
 }

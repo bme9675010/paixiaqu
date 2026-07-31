@@ -183,6 +183,24 @@ body {
 }
 .week-scroll { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; }
 .day-scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+/* ── 年檢視 ── */
+.year-scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px; }
+.year-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+@media (min-width: 700px) { .year-grid { grid-template-columns: repeat(3, 1fr); } }
+.year-month { background: var(--surface); border-radius: 12px; padding: 8px; box-shadow: var(--shadow); }
+.year-month-title { font-size: 13px; font-weight: 700; text-align: center; margin-bottom: 6px; color: var(--text2); }
+.year-month-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.ymcell {
+  position: relative; text-align: center; font-size: 10px; padding: 3px 0;
+  border-radius: 4px; cursor: pointer; color: var(--text);
+}
+.ymcell.empty { cursor: default; }
+.ymcell.today { background: var(--today); color: #fff; font-weight: 700; }
+.ymcell.has-ev::after {
+  content: ''; position: absolute; bottom: 1px; left: 50%; transform: translateX(-50%);
+  width: 3px; height: 3px; border-radius: 50%; background: var(--accent);
+}
+.ymcell.today.has-ev::after { background: #fff; }
 .week-grid { display: flex; min-width: 100%; }
 .time-gutter {
   width: 44px; flex-shrink: 0; position: sticky; left: 0; z-index: 6;

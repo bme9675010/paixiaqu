@@ -848,6 +848,8 @@ async function openEventForm(ev = null, preset = null, occMs = null, prefillData
   $('reminder2Row').hidden = !hasReminder2;
   $('btnAddReminder2').hidden = hasReminder2;
   $('evLocation').value = base.location || '';
+  $('locResults').hidden = true;
+  $('locResults').innerHTML = '';
   $('evUrl').value = base.url || '';
   $('evNotes').value = base.notes || '';
 
@@ -867,6 +869,40 @@ function toggleTimeInputs() {
   const allDay = $('evAllDay').checked;
   $('evStartTime').style.display = allDay ? 'none' : '';
   $('evEndTime').style.display = allDay ? 'none' : '';
+}
+
+// 地點搜尋:用 OpenStreetMap 的 Nominatim(免費、不用 API 金鑰),按搜尋才查一次,不做即時 autocomplete(符合它的使用規範)
+let locSearchSeq = 0;
+async function searchLocation() {
+  const q = $('evLocation').value.trim();
+  const box = $('locResults');
+  if (!q) { box.hidden = true; box.innerHTML = ''; return; }
+  const seq = ++locSearchSeq;
+  box.hidden = false;
+  box.innerHTML = `<div class="loc-result-empty">搜尋中…</div>`;
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=tw&accept-language=zh-TW&limit=6&q=${encodeURIComponent(q)}`;
+    const resp = await fetch(url);
+    const results = await resp.json();
+    if (seq !== locSearchSeq) return; // 使用者已經又搜了下一次,這次結果過期不要顯示
+    if (!results.length) {
+      box.innerHTML = `<div class="loc-result-empty">找不到符合的地點</div>`;
+      return;
+    }
+    box.innerHTML = results.map((r, i) =>
+      `<div class="loc-result-item" data-i="${i}">${esc(r.display_name)}</div>`).join('')
+      + `<div class="loc-attrib">地點資料來源:OpenStreetMap</div>`;
+    box.querySelectorAll('.loc-result-item').forEach(el => {
+      el.onclick = () => {
+        $('evLocation').value = results[+el.dataset.i].display_name;
+        box.hidden = true;
+        box.innerHTML = '';
+      };
+    });
+  } catch (e) {
+    if (seq !== locSearchSeq) return;
+    box.innerHTML = `<div class="loc-result-empty">搜尋失敗,請檢查網路</div>`;
+  }
 }
 
 function isImageAttachment(p) {
@@ -1562,6 +1598,8 @@ function bindUI() {
     // 開始日期改變時,結束日期跟著調整
     if ($('evEndDate').value < $('evStartDate').value) $('evEndDate').value = $('evStartDate').value;
   };
+  $('btnLocSearch').onclick = searchLocation;
+  $('evLocation').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); searchLocation(); } };
   $('evPhotoInput').onchange = async (e) => {
     for (const f of e.target.files) {
       if (f.size > 10 * 1024 * 1024) { toast(`「${f.name}」超過 10MB,略過`); continue; }

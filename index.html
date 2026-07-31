@@ -170,7 +170,11 @@
 
         <div class="form-row form-col">
           <span class="form-label">地點</span>
-          <input type="text" id="evLocation" placeholder="輸入地點,如:台北101">
+          <div class="location-input-row">
+            <input type="text" id="evLocation" placeholder="輸入地點,如:台北101">
+            <button type="button" class="loc-search-btn" id="btnLocSearch" title="搜尋地點">🔍</button>
+          </div>
+          <div class="loc-results" id="locResults" hidden></div>
         </div>
 
         <div class="form-row form-col">

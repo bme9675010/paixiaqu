@@ -18,6 +18,8 @@ let editingEvent = null;      // 編輯中的行程
 let editingOccStart = null;   // 編輯中的重複行程「這一次」的開始時間 (ms)
 let editingPhotos = [];       // 編輯中的照片 [{id, data}]
 let colorAutoMode = false;    // 顏色是否還在「依標題自動建議」狀態(使用者手動選過就關閉)
+let lastTapDateStr = null, lastTapAt = 0; // 月曆格子「點兩下」判斷用(自訂時間窗,比瀏覽器原生 dblclick 寬鬆)
+const DOUBLE_TAP_MS = 600;
 let editingCal = null;        // 編輯中的行事曆
 let calFormColor = PALETTE[0];
 let todos = [];
@@ -273,16 +275,21 @@ function renderMonth() {
     };
     c.onclick = () => {
       const clicked = cellDate();
+      const now = Date.now();
+      const isDoubleTap = lastTapDateStr === c.dataset.date && (now - lastTapAt) < DOUBLE_TAP_MS;
+      lastTapDateStr = c.dataset.date;
+      lastTapAt = now;
       selectedDay = clicked;
+      if (isDoubleTap) {
+        lastTapAt = 0; // 避免連點三次時第三下又被判定成雙擊
+        openDayAgenda(selectedDay);
+        return;
+      }
       if (selectedDay.getMonth() !== cursor.getMonth()) {
         cursor = new Date(selectedDay);
         renderTitle();
       }
       renderMonth();
-    };
-    c.ondblclick = () => {
-      selectedDay = cellDate();
-      openDayAgenda(selectedDay);
     };
   });
 }

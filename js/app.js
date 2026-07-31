@@ -439,7 +439,8 @@ function renderYear() {
       const cls = ['ymcell'];
       if (sameDay(d, today)) cls.push('today');
       if (eventDays.has(ymd)) cls.push('has-ev');
-      cellsHtml += `<span class="${cls.join(' ')}" data-date="${ymd}">${dayNum}</span>`;
+      if (HOLIDAYS[ymd]) cls.push('holiday');
+      cellsHtml += `<span class="${cls.join(' ')}" data-date="${ymd}" title="${HOLIDAYS[ymd] ? esc(HOLIDAYS[ymd]) : ''}">${dayNum}</span>`;
     }
     html += `<div class="year-month">
       <div class="year-month-title">${m + 1}月</div>

@@ -196,6 +196,8 @@ body {
 }
 .ymcell.empty { cursor: default; }
 .ymcell.today { background: var(--today); color: #fff; font-weight: 700; }
+.ymcell.holiday { color: #e5484d; font-weight: 700; }
+.ymcell.today.holiday { color: #fff; }
 .ymcell.has-ev::after {
   content: ''; position: absolute; bottom: 1px; left: 50%; transform: translateX(-50%);
   width: 3px; height: 3px; border-radius: 50%; background: var(--accent);

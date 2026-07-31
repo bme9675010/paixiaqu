@@ -1,5 +1,5 @@
 // Service Worker — 離線快取 + 通知
-const CACHE = 'paixiaqu-v40';
+const CACHE = 'paixiaqu-v41';
 const ASSETS = [
   './',
   './index.html',

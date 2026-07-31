@@ -85,9 +85,26 @@ export const sync = {
     db.getMeta('groupCode').then(code => {
       db.getMeta('memberName').then(name => {
         if (name) $('syncName').value = name;
-        $('groupInfo').innerHTML = groupId
-          ? `✅ 已加入家庭群組<br>邀請碼:<b style="font-size:18px;letter-spacing:2px">${code || ''}</b><br>把邀請碼給家人,他們在自己手機的 App 輸入即可共享。`
-          : '尚未加入群組。建立一個新群組,或輸入家人給你的邀請碼。';
+        if (!groupId) {
+          $('groupInfo').innerHTML = '尚未加入群組。建立一個新群組,或輸入家人給你的邀請碼。';
+          return;
+        }
+        const joinUrl = `${location.origin}${location.pathname}?join=${code || ''}`;
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(joinUrl)}`;
+        $('groupInfo').innerHTML = `✅ 已加入家庭群組<br>邀請碼:<b style="font-size:18px;letter-spacing:2px">${code || ''}</b><br>把邀請碼給家人,他們在自己手機的 App 輸入即可共享。
+          <div style="margin-top:10px;display:flex;flex-direction:column;align-items:center;gap:8px">
+            <img src="${qrUrl}" width="140" height="140" style="border-radius:8px;background:#fff" alt="邀請 QR code">
+            <button class="outline-btn" id="btnShareInvite" style="width:100%">📤 分享邀請連結</button>
+          </div>`;
+        $('btnShareInvite').onclick = async () => {
+          if (navigator.share) {
+            try { await navigator.share({ title: '排下去 家庭共享邀請', text: `邀請你加入我的排下去家庭行事曆,邀請碼:${code}`, url: joinUrl }); }
+            catch { /* 使用者取消分享,不用處理 */ }
+          } else {
+            try { await navigator.clipboard.writeText(joinUrl); toast('邀請連結已複製'); }
+            catch { toast(joinUrl); }
+          }
+        };
       });
     });
     $('btnCreateGroup').onclick = () => this.createGroup();

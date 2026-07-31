@@ -170,6 +170,18 @@ async function init() {
     toast,
   });
   renderSettings();
+
+  // 從邀請連結(?join=CODE)打開的話,自動帶入邀請碼並打開設定頁的家人共享區塊
+  const joinCode = new URLSearchParams(location.search).get('join');
+  if (joinCode) {
+    history.replaceState(null, '', location.pathname);
+    setTimeout(() => {
+      renderSettings();
+      $('settingsPage').classList.add('open');
+      $('joinCode').value = joinCode.toUpperCase();
+      toast('偵測到邀請連結,按「加入」即可');
+    }, 300);
+  }
 }
 
 // ── 畫面渲染 ──

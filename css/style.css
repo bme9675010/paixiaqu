@@ -195,9 +195,11 @@ body {
   border-radius: 4px; cursor: pointer; color: var(--text);
 }
 .ymcell.empty { cursor: default; }
+.ymcell.sun { color: #e5484d; }
+.ymcell.sat { color: #3b82f6; }
 .ymcell.today { background: var(--today); color: #fff; font-weight: 700; }
 .ymcell.holiday { color: #e5484d; font-weight: 700; }
-.ymcell.today.holiday { color: #fff; }
+.ymcell.today.holiday, .ymcell.today.sun, .ymcell.today.sat { color: #fff; }
 .ymcell.has-ev::after {
   content: ''; position: absolute; bottom: 1px; left: 50%; transform: translateX(-50%);
   width: 3px; height: 3px; border-radius: 50%; background: var(--accent);

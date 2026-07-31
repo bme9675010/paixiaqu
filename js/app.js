@@ -439,6 +439,8 @@ function renderYear() {
       const cls = ['ymcell'];
       if (sameDay(d, today)) cls.push('today');
       if (eventDays.has(ymd)) cls.push('has-ev');
+      if (d.getDay() === 0) cls.push('sun');
+      if (d.getDay() === 6) cls.push('sat');
       if (HOLIDAYS[ymd]) cls.push('holiday');
       cellsHtml += `<span class="${cls.join(' ')}" data-date="${ymd}" title="${HOLIDAYS[ymd] ? esc(HOLIDAYS[ymd]) : ''}">${dayNum}</span>`;
     }

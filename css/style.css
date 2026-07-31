@@ -240,6 +240,8 @@ body {
   animation: sheetUp .22s ease-out;
 }
 .sheet-auto { max-height: 80dvh; }
+.sheet-full { height: 92dvh; }
+.sheet-full .sheet-body { flex: 1; }
 @keyframes sheetUp { from { transform: translateY(40%); opacity: .5; } to { transform: none; opacity: 1; } }
 .sheet-handle {
   width: 100%; height: 28px; flex-shrink: 0;

@@ -241,6 +241,20 @@ export const sync = {
   getUid() { return fb ? fb.uid : null; },
   getMemberName(uid) { return memberNames[uid] || '家人'; },
 
+  // 有人新增/修改行程時立即通知群組裡的其他人(跟到期提醒是不同機制,不用等提醒時間)
+  async notifyGroup(title, text) {
+    if (!fb || !groupId) return;
+    const c = window.APP_CONFIG || {};
+    if (!c.WORKER_URL) return;
+    try {
+      await fetch(`${c.WORKER_URL}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groupId, excludeUid: fb.uid, title, text }),
+      });
+    } catch (e) { console.warn('即時通知發送失敗', e); }
+  },
+
   async pushCalendar(cal) {
     if (!fb || !groupId) return;
     try {

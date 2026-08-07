@@ -9,4 +9,6 @@ window.APP_CONFIG = {
   FIREBASE_APP_ID: '1:330508848187:web:0a5220fa407798b9db601e',
   // 雲端推播提醒(App 沒開也會通知)用的公開金鑰,可以公開沒關係
   VAPID_PUBLIC_KEY: 'BFIL3kWWfVqmHrPpQenjAgOHjqWvh4v_Q4pcwXzp2kEXG_eqU3ggpdWRjaayMBE8jucKoI0gcgiWSempEfGOmuY',
+  // 推播提醒用的 Cloudflare Worker 網址(也用來即時通知「有人新增/修改行程」)
+  WORKER_URL: 'https://paixiaqu-reminder-worker.kuo-butler.workers.dev',
 };

@@ -1147,6 +1147,7 @@ async function saveEvent() {
       events = await db.getAll('events');
       sync.pushEvent(orig);
       sync.pushEvent(single);
+      sync.notifyGroup('📅 排下去', `${sync.getMemberName(sync.getUid())} 修改了「${title}」`);
       closeEventForm();
       render();
       toast('已修改這一次 ✅');
@@ -1172,6 +1173,7 @@ async function saveEvent() {
       events = await db.getAll('events');
       sync.pushEvent(orig);
       sync.pushEvent(newSeries);
+      sync.notifyGroup('📅 排下去', `${sync.getMemberName(sync.getUid())} 修改了「${title}」`);
       closeEventForm();
       render();
       toast('已更新這次以後的行程 ✅');
@@ -1189,6 +1191,7 @@ async function saveEvent() {
     await db.put('events', ev);
     events = await db.getAll('events');
     sync.pushEvent(ev);
+    sync.notifyGroup('📅 排下去', `${sync.getMemberName(sync.getUid())} 修改了「${title}」`);
     closeEventForm();
     render();
     toast('已更新所有重複 ✅');
@@ -1209,6 +1212,7 @@ async function saveEvent() {
   await db.put('events', ev);
   events = await db.getAll('events');
   sync.pushEvent(ev);
+  sync.notifyGroup('📅 排下去', `${sync.getMemberName(sync.getUid())} ${editingEvent ? '修改了' : '新增了'}「${title}」`);
   closeEventForm();
   render();
   toast(editingEvent ? '已更新' : '已新增行程 ✅');

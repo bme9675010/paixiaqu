@@ -5,16 +5,61 @@ import { occurrencesInRange } from './occurrences.js';
 const WINDOW_MS = 6 * 60 * 1000; // cron 每 5 分鐘跑一次,用 6 分鐘視窗確保不漏掉、留一點緩衝(實際去重靠 notifiedReminders,不靠這個視窗)
 const timeFmt = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false });
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
 export default {
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(run(env));
   },
-  // 方便手動觸發測試:瀏覽器打開 Worker 網址即可立刻跑一次
-  async fetch(_req, env) {
+  async fetch(req, env) {
+    const url = new URL(req.url);
+    if (req.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
+    if (req.method === 'POST' && url.pathname === '/notify') {
+      const resp = await handleNotify(req, env);
+      for (const [k, v] of Object.entries(CORS_HEADERS)) resp.headers.set(k, v);
+      return resp;
+    }
+    // 方便手動觸發測試:瀏覽器打開 Worker 網址即可立刻跑一次提醒檢查
     await run(env);
     return new Response('ok\n');
   },
 };
+
+// 有人在 App 裡新增/修改行程時,前端會呼叫這個端點,立即通知群組裡「除了自己以外」的其他裝置
+// (跟提醒推播是分開的機制:提醒是排程到期才發,這個是動作發生當下就發)
+async function handleNotify(req, env) {
+  let body;
+  try { body = await req.json(); } catch { return new Response('bad json', { status: 400 }); }
+  const { groupId, excludeUid, title, text } = body || {};
+  if (!groupId || !title || !text) return new Response('missing fields', { status: 400 });
+
+  const serviceAccount = JSON.parse(env.GCP_SERVICE_ACCOUNT_JSON);
+  const fs = makeFirestoreClient(serviceAccount, env.FIREBASE_PROJECT_ID);
+  const subs = await fs.listDocs(`groups/${groupId}/pushSubscriptions`).catch(() => []);
+
+  let sent = 0;
+  for (const sub of subs) {
+    if (excludeUid && sub.id === excludeUid) continue;
+    const pushSub = { endpoint: sub.data.endpoint, p256dh: sub.data.p256dh, auth: sub.data.auth };
+    try {
+      await sendWebPush(
+        pushSub,
+        { title, body: text },
+        { vapidPublicKey: env.VAPID_PUBLIC_KEY, vapidPrivateKey: env.VAPID_PRIVATE_KEY, vapidSubject: env.VAPID_SUBJECT, ttl: 3600 }
+      );
+      sent++;
+    } catch (e) {
+      if (e.statusCode === 404 || e.statusCode === 410) {
+        await fs.deleteDoc(`groups/${groupId}/pushSubscriptions/${sub.id}`).catch(() => {});
+      }
+    }
+  }
+  return new Response(JSON.stringify({ sent }), { headers: { 'Content-Type': 'application/json' } });
+}
 
 async function run(env) {
   const serviceAccount = JSON.parse(env.GCP_SERVICE_ACCOUNT_JSON);

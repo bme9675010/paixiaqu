@@ -363,7 +363,6 @@ input[type=text] { -webkit-user-select: text; user-select: text; }
   display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px;
 }
 .color-swatch.sel { border-color: var(--text); }
-.color-swatch.auto { background: var(--surface2) !important; color: var(--text2); font-size: 9px; }
 
 .photo-strip { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .photo-thumb {

@@ -40,12 +40,37 @@ const startOfWeek = d => { const x = startOfDay(d); x.setDate(x.getDate() - x.ge
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
 function calById(id) { return calendars.find(c => c.id === id) || { name: '?', color: '#999' }; }
-function evColor(ev) { return ev.color || calById(ev.calendarId).color; }
-// 依標題文字算出固定的顏色(同標題永遠同色),讓使用者不用手動選就有不同行程不同顏色的效果
-function titleColor(title) {
-  let h = 0;
-  for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) >>> 0;
-  return PALETTE[h % PALETTE.length];
+// 沒有存死顏色(color=null)的話,動態照「參加者標籤優先、其次行事曆顏色」決定,標籤/行事曆顏色之後改了也會自動跟著變
+function evColor(ev) {
+  if (ev.color) return ev.color;
+  if (ev.tagIds && ev.tagIds.length) {
+    const tag = personTags.find(t => t.id === ev.tagIds[0] && !t.deleted);
+    if (tag) return tag.color;
+  }
+  return calById(ev.calendarId).color;
+}
+
+// 顏色決定順序:參加者標籤優先 → 家庭/工作/個人的行事曆顏色 → 都沒有就隨機給一個沒被佔用的顏色
+// dynamic=true 表示這個顏色是跟著標籤/行事曆算出來的,存檔時可以留 null 讓它以後自動跟著變(例如標籤顏色改了就跟著改);
+// dynamic=false(隨機)則要把當下決定的顏色固定存下來,不然每次都會變
+const DEFAULT_CAL_NAMES = ['家庭', '工作', '個人'];
+function resolveAutoColor(tagIds, calendarId) {
+  if (tagIds && tagIds.length) {
+    const tag = personTags.find(t => t.id === tagIds[0] && !t.deleted);
+    if (tag) return { color: tag.color, dynamic: true };
+  }
+  const cal = calById(calendarId);
+  if (cal && DEFAULT_CAL_NAMES.includes(cal.name)) return { color: cal.color, dynamic: true };
+  return { color: pickUnusedColor(), dynamic: false };
+}
+function pickUnusedColor() {
+  const used = new Set([
+    ...personTags.filter(t => !t.deleted).map(t => t.color),
+    ...calendars.filter(c => !c.deleted && DEFAULT_CAL_NAMES.includes(c.name)).map(c => c.color),
+  ]);
+  const free = PALETTE.filter(c => !used.has(c));
+  const pool = free.length ? free : PALETTE;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 // 把字串依字數平均切成 n 段(給跨日行程橫幅用,例如「花蓮三天二夜」切 3 天就變成「花蓮」「三天」「二夜」)
 function splitEven(str, n) {
@@ -896,25 +921,23 @@ async function openEventForm(ev = null, preset = null, occMs = null, prefillData
   const base = ev || prefillData || {};
   const defCalId = base.calendarId || (activeCals[0] && activeCals[0].id);
 
+  // 顏色的自動建議跟著「參加者標籤」「行事曆」的選擇即時更新(還沒手動點過顏色時才會自動跟)
+  const currentTagIds = () => [...$('evTagPicker').querySelectorAll('.cal-opt.sel')].map(o => o.dataset.id);
+  const currentCalId = () => ($('calPicker').querySelector('.cal-opt.sel') || {}).dataset?.id;
+  const updateColorSuggestion = () => {
+    if (!colorAutoMode) return;
+    const { color } = resolveAutoColor(currentTagIds(), currentCalId());
+    $('colorPicker').querySelectorAll('.color-swatch').forEach(x =>
+      x.classList.toggle('sel', x.dataset.color === color));
+  };
+
   $('calPicker').innerHTML = activeCals.map(c =>
     `<span class="cal-opt ${c.id === defCalId ? 'sel' : ''}" data-id="${c.id}"><span class="cal-dot" style="background:${c.color}"></span>${esc(c.name)}</span>`).join('');
   $('calPicker').querySelectorAll('.cal-opt').forEach(o => {
     o.onclick = () => {
       $('calPicker').querySelectorAll('.cal-opt').forEach(x => x.classList.remove('sel'));
       o.classList.add('sel');
-    };
-  });
-
-  // 新行程還沒手動選過顏色時,依標題自動建議一個顏色(同標題永遠同色),使用者不用手動點也能有不同行程不同顏色
-  colorAutoMode = !ev && !base.color;
-  const evColorVal = base.color || (colorAutoMode ? titleColor(base.title || '') : '');
-  $('colorPicker').innerHTML = `<span class="color-swatch auto ${evColorVal ? '' : 'sel'}" data-color="" title="跟隨行事曆">A</span>`
-    + PALETTE.map(c => `<span class="color-swatch ${c === evColorVal ? 'sel' : ''}" data-color="${c}" style="background:${c}"></span>`).join('');
-  $('colorPicker').querySelectorAll('.color-swatch').forEach(o => {
-    o.onclick = () => {
-      colorAutoMode = false;
-      $('colorPicker').querySelectorAll('.color-swatch').forEach(x => x.classList.remove('sel'));
-      o.classList.add('sel');
+      updateColorSuggestion();
     };
   });
 
@@ -924,16 +947,23 @@ async function openEventForm(ev = null, preset = null, occMs = null, prefillData
   $('evTagPicker').innerHTML = activeTags.map(t =>
     `<span class="cal-opt ${baseTagIds.includes(t.id) ? 'sel' : ''}" data-id="${t.id}"><span class="cal-dot" style="background:${t.color}"></span>${esc(t.name)}</span>`).join('');
   $('evTagPicker').querySelectorAll('.cal-opt').forEach(o => {
-    o.onclick = () => o.classList.toggle('sel');
+    o.onclick = () => { o.classList.toggle('sel'); updateColorSuggestion(); };
+  });
+
+  // 新行程/還沒手動選過顏色時:標籤優先,其次家庭/工作/個人的行事曆顏色,都沒有就隨機給一個不撞色的顏色
+  colorAutoMode = !base.color;
+  const initialColor = base.color || resolveAutoColor(baseTagIds, defCalId).color;
+  $('colorPicker').innerHTML = PALETTE.map(c =>
+    `<span class="color-swatch ${c === initialColor ? 'sel' : ''}" data-color="${c}" style="background:${c}"></span>`).join('');
+  $('colorPicker').querySelectorAll('.color-swatch').forEach(o => {
+    o.onclick = () => {
+      colorAutoMode = false;
+      $('colorPicker').querySelectorAll('.color-swatch').forEach(x => x.classList.remove('sel'));
+      o.classList.add('sel');
+    };
   });
 
   $('evTitle').value = base.title || '';
-  $('evTitle').oninput = () => {
-    if (!colorAutoMode) return;
-    const suggested = titleColor($('evTitle').value);
-    $('colorPicker').querySelectorAll('.color-swatch').forEach(x =>
-      x.classList.toggle('sel', x.dataset.color === suggested));
-  };
   $('evAllDay').checked = !!base.allDay;
 
   let s, e;
@@ -1124,12 +1154,21 @@ async function saveEvent() {
   const reminder2Val = $('reminder2Row').hidden ? '' : $('evReminder2').value;
   let url = $('evUrl').value.trim();
   if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url;
-  const selColor = $('colorPicker').querySelector('.color-swatch.sel');
+  const tagIds = [...$('evTagPicker').querySelectorAll('.cal-opt.sel')].map(o => o.dataset.id);
+  // 顏色:手動選過就固定用那個;沒手動選的話,標籤/家庭工作個人顏色不用存死(以後會自動跟著變),隨機決定的才需要存下來固定住
+  let finalColor;
+  if (colorAutoMode) {
+    const resolved = resolveAutoColor(tagIds, calendarId);
+    finalColor = resolved.dynamic ? null : resolved.color;
+  } else {
+    const selColor = $('colorPicker').querySelector('.color-swatch.sel');
+    finalColor = (selColor && selColor.dataset.color) || null;
+  }
   const formVals = {
     calendarId,
     title,
     allDay,
-    color: (selColor && selColor.dataset.color) || null,
+    color: finalColor,
     repeat: $('evRepeat').value,
     repeatUntil: $('repeatUntilRow').hidden ? null : ($('evRepeatUntil').value || null),
     interval: $('repeatIntervalRow').hidden ? null : (Number($('evRepeatInterval').value) || 1),
@@ -1141,7 +1180,7 @@ async function saveEvent() {
     url,
     notes: $('evNotes').value.trim(),
     photos: photoIds,
-    tagIds: [...$('evTagPicker').querySelectorAll('.cal-opt.sel')].map(o => o.dataset.id),
+    tagIds,
   };
 
   // 編輯重複行程的某一次 → 問要改一次還是全部

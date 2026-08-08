@@ -11,6 +11,8 @@ const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 // ── 狀態 ──
 let calendars = [];
 let events = [];
+let personTags = [];
+let tagFormColor = PALETTE[0];
 let view = 'month';
 let cursor = new Date();      // 目前檢視的月/週/日基準
 let selectedDay = new Date(); // 月檢視選取的日期
@@ -151,6 +153,7 @@ async function init() {
   }
   events = await db.getAll('events');
   todos = await db.getAll('todos');
+  personTags = await db.getAll('personTags');
 
   bindUI();
   render();
@@ -163,6 +166,7 @@ async function init() {
       calendars = await db.getAll('calendars');
       events = await db.getAll('events');
       todos = await db.getAll('todos');
+      personTags = await db.getAll('personTags');
       render();
       renderSettings();
       renderTodoList();
@@ -809,6 +813,11 @@ async function showDetail(id, occMs) {
       ${attendees.map(uid => `<span class="attendee-chip">${esc(sync.getMemberName(uid))}</span>`).join('')}
       <button class="attendee-toggle ${iAmIn ? 'joined' : ''}" id="btnToggleAttend">${iAmIn ? '✓ 我會參加' : '＋ 我要參加'}</button>
     </div>` : '';
+  const evTags = (ev.tagIds || []).map(id => personTags.find(t => t.id === id)).filter(t => t && !t.deleted);
+  const tagChipsHtml = evTags.length ? `
+    <div class="attendee-chips">
+      ${evTags.map(t => `<span class="attendee-chip" style="background:${t.color}22;color:${t.color}">${esc(t.name)}</span>`).join('')}
+    </div>` : '';
   const commentsHtml = cloudOn ? `
     <div class="comments-section">
       <div class="comments-title">💬 留言</div>
@@ -827,6 +836,7 @@ async function showDetail(id, occMs) {
     ${urlHtml}
     ${ev.notes ? `<div class="detail-notes">${esc(ev.notes)}</div>` : ''}
     ${photosHtml}
+    ${tagChipsHtml}
     ${attendeeHtml}
     <div class="detail-actions">
       <button class="detail-delete" id="btnDetailDelete" title="刪除行程">🗑️</button>
@@ -906,6 +916,15 @@ async function openEventForm(ev = null, preset = null, occMs = null, prefillData
       $('colorPicker').querySelectorAll('.color-swatch').forEach(x => x.classList.remove('sel'));
       o.classList.add('sel');
     };
+  });
+
+  const activeTags = personTags.filter(t => !t.deleted);
+  $('tagPickerRow').hidden = !activeTags.length;
+  const baseTagIds = base.tagIds || [];
+  $('evTagPicker').innerHTML = activeTags.map(t =>
+    `<span class="cal-opt ${baseTagIds.includes(t.id) ? 'sel' : ''}" data-id="${t.id}"><span class="cal-dot" style="background:${t.color}"></span>${esc(t.name)}</span>`).join('');
+  $('evTagPicker').querySelectorAll('.cal-opt').forEach(o => {
+    o.onclick = () => o.classList.toggle('sel');
   });
 
   $('evTitle').value = base.title || '';
@@ -1122,6 +1141,7 @@ async function saveEvent() {
     url,
     notes: $('evNotes').value.trim(),
     photos: photoIds,
+    tagIds: [...$('evTagPicker').querySelectorAll('.cal-opt.sel')].map(o => o.dataset.id),
   };
 
   // 編輯重複行程的某一次 → 問要改一次還是全部
@@ -1334,7 +1354,7 @@ async function confirmCopyDates() {
       id: db.uid(), calendarId: ev.calendarId, title: ev.title, allDay: ev.allDay, color: ev.color || null,
       start: newStart.toISOString(), end: newEnd.toISOString(),
       repeat: 'none', exdates: [], reminder: ev.reminder, reminder2: ev.reminder2 ?? null,
-      location: ev.location || '', url: ev.url || '', notes: ev.notes || '', photos: ev.photos || [],
+      location: ev.location || '', url: ev.url || '', notes: ev.notes || '', photos: ev.photos || [], tagIds: ev.tagIds || [],
       createdBy: sync.getUid(), attendees: [],
       deleted: false, updatedAt: Date.now(),
     };
@@ -1427,11 +1447,64 @@ function renderSettings() {
     };
   });
 
+  renderTagList();
+
   // 通知狀態
   if ('Notification' in window && Notification.permission === 'granted') {
     $('btnNotifyPerm').textContent = '✅ 通知已開啟';
   }
   sync.renderStatus();
+}
+
+// ── 人員標籤 ──
+function renderTagList() {
+  const list = $('tagList');
+  const activeTags = personTags.filter(t => !t.deleted);
+  list.innerHTML = activeTags.length ? activeTags.map(t => `
+    <div class="cal-item" data-id="${t.id}">
+      <span class="cal-item-dot" style="background:${t.color}"></span>
+      <span class="cal-item-name">${esc(t.name)}</span>
+      <button class="icon-btn tag-del" data-id="${t.id}">刪除</button>
+    </div>`).join('') : '<p class="hint">還沒有標籤,新增之後行程表單就可以直接勾選參加者。</p>';
+  list.querySelectorAll('.tag-del').forEach(btn => {
+    btn.onclick = async () => {
+      const tag = personTags.find(t => t.id === btn.dataset.id);
+      if (!tag || !confirm(`刪除標籤「${tag.name}」?(已標註過的行程不受影響,只是之後不會再出現這個選項)`)) return;
+      const updated = { ...tag, deleted: true, updatedAt: Date.now() };
+      await db.put('personTags', updated);
+      personTags = await db.getAll('personTags');
+      sync.pushPersonTag(updated);
+      renderTagList();
+    };
+  });
+}
+
+function openTagAddForm() {
+  $('tagAddRow').hidden = false;
+  $('tagNameInput').value = '';
+  tagFormColor = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+  $('tagColorPicker').innerHTML = PALETTE.map(c =>
+    `<span class="color-swatch ${c === tagFormColor ? 'sel' : ''}" data-color="${c}" style="background:${c}"></span>`).join('');
+  $('tagColorPicker').querySelectorAll('.color-swatch').forEach(s => {
+    s.onclick = () => {
+      tagFormColor = s.dataset.color;
+      $('tagColorPicker').querySelectorAll('.color-swatch').forEach(x => x.classList.remove('sel'));
+      s.classList.add('sel');
+    };
+  });
+  $('tagNameInput').focus();
+}
+
+async function saveTag() {
+  const name = $('tagNameInput').value.trim();
+  if (!name) { toast('請輸入標籤名稱'); return; }
+  const tag = { id: db.uid(), name, color: tagFormColor, deleted: false, updatedAt: Date.now() };
+  await db.put('personTags', tag);
+  personTags = await db.getAll('personTags');
+  sync.pushPersonTag(tag);
+  $('tagAddRow').hidden = true;
+  renderTagList();
+  toast('標籤已新增 ✅');
 }
 
 function openCalForm(cal = null) {
@@ -1804,6 +1877,8 @@ function bindUI() {
   $('btnTodoAdd').onclick = addTodo;
   $('todoInput').onkeydown = (e) => { if (e.key === 'Enter') addTodo(); };
   $('btnAddCal').onclick = () => openCalForm();
+  $('btnAddTag').onclick = openTagAddForm;
+  $('btnTagConfirm').onclick = saveTag;
   $('btnCalCancel').onclick = () => $('calSheetBackdrop').classList.remove('open');
   $('btnCalSave').onclick = saveCal;
   $('btnCalDelete').onclick = deleteCal;

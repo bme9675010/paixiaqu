@@ -109,6 +109,11 @@
           <div class="color-picker" id="colorPicker"></div>
         </div>
 
+        <div class="form-row form-col" id="tagPickerRow" hidden>
+          <span class="form-label">參加者標籤</span>
+          <div class="cal-picker" id="evTagPicker" style="justify-content:flex-start"></div>
+        </div>
+
         <div class="form-row toggle-row">
           <span class="form-label">全天</span>
           <label class="switch"><input type="checkbox" id="evAllDay"><span class="slider"></span></label>
@@ -311,6 +316,15 @@
       <h3 class="settings-section">我的行事曆</h3>
       <div id="calList"></div>
       <button class="outline-btn" id="btnAddCal">＋ 新增行事曆</button>
+
+      <h3 class="settings-section">人員標籤</h3>
+      <div id="tagList"></div>
+      <div id="tagAddRow" hidden>
+        <div class="form-row"><input type="text" id="tagNameInput" placeholder="標籤名稱,如:媽咪"></div>
+        <div class="color-picker" id="tagColorPicker" style="justify-content:flex-start;margin-top:6px"></div>
+        <button class="outline-btn" id="btnTagConfirm" style="margin-top:8px">儲存標籤</button>
+      </div>
+      <button class="outline-btn" id="btnAddTag">＋ 新增標籤</button>
 
       <h3 class="settings-section">通知</h3>
       <button class="outline-btn" id="btnNotifyPerm">開啟通知權限</button>

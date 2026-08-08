@@ -9,7 +9,7 @@ let fb = null; // { auth, fs, uid, mods:{...firestore funcs} }
 let groupId = null;
 let onRemoteChange = null;
 let toast = () => {};
-let unsubEvents = null, unsubCalendars = null, unsubTodos = null;
+let unsubEvents = null, unsubCalendars = null, unsubTodos = null, unsubTags = null;
 let memberNames = {}; // uid -> 暱稱 快取
 
 const $ = id => document.getElementById(id);
@@ -265,6 +265,16 @@ export const sync = {
     } catch (e) { console.warn('push calendar 失敗', e); }
   },
 
+  async pushPersonTag(t) {
+    if (!fb || !groupId) return;
+    try {
+      const { doc, setDoc } = fb.m;
+      await setDoc(doc(fb.fs, 'groups', groupId, 'personTags', t.id), {
+        name: t.name, color: t.color, deleted: !!t.deleted, updatedAtMs: t.updatedAt,
+      });
+    } catch (e) { console.warn('push person tag 失敗', e); }
+  },
+
   async pushEvent(ev) {
     if (!fb || !groupId) return;
     try {
@@ -285,7 +295,7 @@ export const sync = {
         startAt: ev.start, endAt: ev.end,
         repeat: ev.repeat || 'none', repeatUntil: ev.repeatUntil || null, exdates: ev.exdates || [],
         interval: ev.interval || null, byDay: ev.byDay || null,
-        reminder: ev.reminder, reminder2: ev.reminder2 ?? null, color: ev.color || null, location: ev.location || '', url: ev.url || '', notes: ev.notes || '',
+        reminder: ev.reminder, reminder2: ev.reminder2 ?? null, color: ev.color || null, tagIds: ev.tagIds || [], location: ev.location || '', url: ev.url || '', notes: ev.notes || '',
         photoIds: ev.photos || [],
         createdBy: ev.createdBy || fb.uid, attendees: ev.attendees || [],
         deleted: !!ev.deleted, updatedAtMs: ev.updatedAt,
@@ -360,7 +370,7 @@ export const sync = {
           await db.put('events', {
             id: d.id, calendarId: re.calendarId, title: re.title,
             allDay: re.allDay, start: re.startAt, end: re.endAt,
-            repeat: re.repeat, repeatUntil: re.repeatUntil || null, exdates: re.exdates || [], interval: re.interval || null, byDay: re.byDay || null, reminder: re.reminder, reminder2: re.reminder2 ?? null, color: re.color || null, location: re.location || '', url: re.url || '', notes: re.notes,
+            repeat: re.repeat, repeatUntil: re.repeatUntil || null, exdates: re.exdates || [], interval: re.interval || null, byDay: re.byDay || null, reminder: re.reminder, reminder2: re.reminder2 ?? null, color: re.color || null, tagIds: re.tagIds || [], location: re.location || '', url: re.url || '', notes: re.notes,
             photos: photoIds, createdBy: re.createdBy || null, attendees: re.attendees || [],
             deleted: re.deleted, updatedAt: re.updatedAtMs,
           });
@@ -381,6 +391,15 @@ export const sync = {
           await db.put('todos', { id: d.id, text: rt.text, done: rt.done, deleted: rt.deleted, updatedAt: rt.updatedAtMs });
         }
       }
+
+      const tagSnap = await getDocs(collection(fb.fs, 'groups', groupId, 'personTags'));
+      for (const d of tagSnap.docs) {
+        const rt = d.data();
+        const local = await db.get('personTags', d.id);
+        if (!local || rt.updatedAtMs > local.updatedAt) {
+          await db.put('personTags', { id: d.id, name: rt.name, color: rt.color, deleted: rt.deleted, updatedAt: rt.updatedAtMs });
+        }
+      }
     } catch (e) { console.warn('pull 失敗', e); }
   },
 
@@ -388,7 +407,7 @@ export const sync = {
   subscribe() {
     if (!fb || !groupId || unsubEvents) return;
     const { collection, onSnapshot } = fb.m;
-    let first1 = true, first2 = true, first3 = true;
+    let first1 = true, first2 = true, first3 = true, first4 = true;
     unsubEvents = onSnapshot(collection(fb.fs, 'groups', groupId, 'events'), async () => {
       if (first1) { first1 = false; return; } // 略過初次訂閱時的既有快照(pullAll 已處理過)
       await this.pullAll();
@@ -401,6 +420,11 @@ export const sync = {
     });
     unsubTodos = onSnapshot(collection(fb.fs, 'groups', groupId, 'todos'), async () => {
       if (first3) { first3 = false; return; }
+      await this.pullAll();
+      if (onRemoteChange) onRemoteChange();
+    });
+    unsubTags = onSnapshot(collection(fb.fs, 'groups', groupId, 'personTags'), async () => {
+      if (first4) { first4 = false; return; }
       await this.pullAll();
       if (onRemoteChange) onRemoteChange();
     });

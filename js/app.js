@@ -820,8 +820,8 @@ async function showDetail(id, occMs) {
     for (const pid of ev.photos) {
       const p = await db.get('photos', pid);
       if (!p) continue;
-      if (isImageAttachment(p)) items.push(`<img src="${p.data}" alt="照片">`);
-      else items.push(`<a class="link-row" href="${p.data}" target="_blank" rel="noopener">📄 <span>${esc(p.name || '檔案')}</span></a>`);
+      if (isImageAttachment(p)) items.push(`<img src="${p.data}" alt="照片" data-pid="${p.id}">`);
+      else items.push(`<a class="link-row" href="#" data-file-pid="${p.id}">📄 <span>${esc(p.name || '檔案')}</span></a>`);
     }
     if (items.length) photosHtml = `<div class="detail-photos">${items.join('')}</div>`;
   }
@@ -871,6 +871,16 @@ async function showDetail(id, occMs) {
     </div>
     ${commentsHtml}`;
   $('detailBackdrop').classList.add('open');
+  $('detailBody').querySelectorAll('.detail-photos img').forEach(img => {
+    img.onclick = () => openLightbox(img.src);
+  });
+  $('detailBody').querySelectorAll('[data-file-pid]').forEach(a => {
+    a.onclick = async (e2) => {
+      e2.preventDefault();
+      const p = await db.get('photos', a.dataset.filePid);
+      if (p) openAttachmentFile(p);
+    };
+  });
   $('btnDetailClose').onclick = closeDetail;
   $('btnDetailDelete').onclick = () => deleteEvent(ev, occMs);
   $('btnDetailEdit').onclick = () => {
@@ -1064,6 +1074,37 @@ async function searchLocation() {
   }
 }
 
+// 詳情頁的照片點了全螢幕放大;再點一下照片可切換 2 倍放大(可拖曳看細節),點背景/✕/往下滑關閉
+function openLightbox(src) {
+  const lb = $('lightbox');
+  const img = $('lightboxImg');
+  img.src = src;
+  lb.classList.remove('zoomed');
+  lb.hidden = false;
+  $('lightboxScroll').scrollTo(0, 0);
+}
+function closeLightbox() {
+  $('lightbox').hidden = true;
+  $('lightboxImg').src = '';
+}
+
+// 非圖片附件(PDF 等):data URL 在 iPhone 上不能直接用連結開,先轉成 Blob 再開新分頁
+function openAttachmentFile(p) {
+  try {
+    const [meta, b64] = p.data.split(',');
+    const mime = (meta.match(/data:([^;]+)/) || [])[1] || p.type || 'application/octet-stream';
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    const w = window.open(url, '_blank');
+    if (!w) location.href = url;
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch {
+    toast('這個附件無法開啟');
+  }
+}
+
 function isImageAttachment(p) {
   return p.type ? p.type.startsWith('image/') : p.data.startsWith('data:image');
 }
@@ -1087,6 +1128,8 @@ function renderPhotoStrip() {
       ? `<img class="photo-thumb" src="${p.data}">`
       : `<div class="file-thumb">${fileIcon(p.name)}<span>${esc(p.name || '檔案')}</span></div>`;
     wrap.innerHTML = `${inner}<button class="photo-del">✕</button>`;
+    const thumb = wrap.querySelector('.photo-thumb');
+    if (thumb) thumb.onclick = () => openLightbox(p.data);
     wrap.querySelector('.photo-del').onclick = () => {
       editingPhotos = editingPhotos.filter(x => x.id !== p.id);
       renderPhotoStrip();
@@ -1889,6 +1932,21 @@ function bindUI() {
     if ($('evEndDate').value < $('evStartDate').value) $('evEndDate').value = $('evStartDate').value;
   };
   $('btnLocSearch').onclick = searchLocation;
+
+  // 照片放大檢視
+  $('btnLightboxClose').onclick = closeLightbox;
+  $('lightboxScroll').onclick = (e) => {
+    if (e.target === $('lightboxImg')) $('lightbox').classList.toggle('zoomed');
+    else closeLightbox();
+  };
+  let lbStartY = null;
+  $('lightbox').addEventListener('touchstart', (e) => {
+    lbStartY = $('lightbox').classList.contains('zoomed') ? null : e.touches[0].clientY;
+  }, { passive: true });
+  $('lightbox').addEventListener('touchend', (e) => {
+    if (lbStartY !== null && e.changedTouches[0].clientY - lbStartY > 90) closeLightbox();
+    lbStartY = null;
+  });
   $('evLocation').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); searchLocation(); } };
   $('evPhotoInput').onchange = async (e) => {
     for (const f of e.target.files) {

@@ -464,7 +464,23 @@ input[type=text] { -webkit-user-select: text; user-select: text; }
 .detail-time { font-size: 14px; color: var(--text2); margin-bottom: 12px; }
 .detail-notes { font-size: 14px; white-space: pre-wrap; margin: 10px 0; -webkit-user-select: text; user-select: text; }
 .detail-photos { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
-.detail-photos img { width: 100px; height: 100px; object-fit: cover; border-radius: 10px; }
+.detail-photos img { width: 100px; height: 100px; object-fit: cover; border-radius: 10px; cursor: zoom-in; }
+.photo-thumb { cursor: zoom-in; }
+
+/* ── 照片放大檢視 ── */
+.lightbox { position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,.92); }
+.lightbox-scroll {
+  position: absolute; inset: 0; overflow: auto; -webkit-overflow-scrolling: touch;
+  display: flex; align-items: center; justify-content: center;
+}
+.lightbox-scroll img { max-width: 100%; max-height: 100%; object-fit: contain; cursor: zoom-in; }
+.lightbox.zoomed .lightbox-scroll { display: block; }
+.lightbox.zoomed .lightbox-scroll img { max-width: none; max-height: none; width: 200%; cursor: zoom-out; }
+.lightbox-close {
+  position: absolute; top: calc(var(--sat) + 12px); right: 14px;
+  width: 40px; height: 40px; border-radius: 50%; border: none;
+  background: rgba(255,255,255,.18); color: #fff; font-size: 20px; cursor: pointer;
+}
 .detail-actions { display: flex; gap: 8px; margin-top: 16px; }
 .detail-actions button { flex: 1; padding: 12px 6px; border: none; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; }
 .detail-edit { background: var(--accent); color: #fff; }

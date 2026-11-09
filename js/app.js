@@ -783,10 +783,12 @@ function renderComments(comments) {
       <div class="comment-avatar">${esc((c.name || '?').slice(0, 1))}</div>
       <div class="comment-body">
         <div class="comment-name">${esc(c.name || '家人')}</div>
-        <div class="comment-text">${esc(c.text)}</div>
+        ${c.text ? `<div class="comment-text">${esc(c.text)}</div>` : ''}
+        ${c.image ? `<img class="comment-img" src="${c.image}" alt="留言照片">` : ''}
       </div>
       ${c.uid === myUid ? `<button class="comment-del" data-id="${c.id}">✕</button>` : ''}
     </div>`).join('') : '<div class="empty-hint" style="padding:6px 0">還沒有留言,說句話吧</div>';
+  list.querySelectorAll('.comment-img').forEach(img => { img.onclick = () => openLightbox(img.src); });
 }
 
 async function showDetail(id, occMs) {
@@ -848,6 +850,7 @@ async function showDetail(id, occMs) {
       <div class="comments-title">💬 留言</div>
       <div id="commentsList"></div>
       <div class="comment-input-row">
+        <label class="comment-attach" title="傳照片">📷<input type="file" id="commentPhotoInput" accept="image/*" hidden></label>
         <input type="text" id="commentInput" placeholder="寫留言…">
         <button class="comment-send" id="btnCommentSend">➤</button>
       </div>
@@ -911,6 +914,20 @@ async function showDetail(id, occMs) {
     };
     $('btnCommentSend').onclick = sendComment;
     $('commentInput').onkeydown = (e2) => { if (e2.key === 'Enter') sendComment(); };
+    // 選了照片就直接送出(連同輸入框裡已打的字),跟聊天 App 一樣
+    $('commentPhotoInput').onchange = async (e2) => {
+      const f = e2.target.files[0];
+      e2.target.value = '';
+      if (!f) return;
+      try {
+        let data = await compressImage(f);
+        if (data.length > PHOTO_MAX_BASE64) data = await compressImage(f, 800, 0.6);
+        if (data.length > PHOTO_MAX_BASE64) { toast('照片太大,傳不上去'); return; }
+        toast('照片傳送中…');
+        await sync.postComment(ev.id, $('commentInput').value.trim(), data);
+        $('commentInput').value = '';
+      } catch { toast('照片傳送失敗'); }
+    };
     $('commentsList').addEventListener('click', (e2) => {
       const btn = e2.target.closest('.comment-del');
       if (btn) sync.deleteComment(ev.id, btn.dataset.id);
@@ -1139,19 +1156,18 @@ function renderPhotoStrip() {
 }
 
 // 照片壓縮:縮到長邊 1280px 的 JPEG
-function compressImage(file) {
+function compressImage(file, MAX = 1280, quality = 0.8) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
-      const MAX = 1280;
       let { width: w, height: h } = img;
       if (Math.max(w, h) > MAX) { const r = MAX / Math.max(w, h); w = Math.round(w * r); h = Math.round(h * r); }
       const canvas = document.createElement('canvas');
       canvas.width = w; canvas.height = h;
       canvas.getContext('2d').drawImage(img, 0, 0, w, h);
       URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL('image/jpeg', 0.8));
+      resolve(canvas.toDataURL('image/jpeg', quality));
     };
     img.onerror = reject;
     img.src = url;

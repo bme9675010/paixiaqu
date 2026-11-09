@@ -320,12 +320,15 @@ export const sync = {
     const q = query(collection(fb.fs, 'groups', groupId, 'events', eventId, 'comments'), orderBy('createdAt', 'asc'));
     return onSnapshot(q, snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => cb([]));
   },
-  async postComment(eventId, text) {
+  // image:壓縮過的照片 data URL(可省略),直接存在留言文件裡
+  async postComment(eventId, text, image = null) {
     if (!fb || !groupId) return;
     const { doc, collection, setDoc } = fb.m;
     const name = (await db.getMeta('memberName')) || '家人';
     const ref = doc(collection(fb.fs, 'groups', groupId, 'events', eventId, 'comments'));
-    await setDoc(ref, { uid: fb.uid, name, text, createdAt: Date.now() });
+    const data = { uid: fb.uid, name, text: text || '', createdAt: Date.now() };
+    if (image) data.image = image;
+    await setDoc(ref, data);
   },
   async deleteComment(eventId, commentId) {
     if (!fb || !groupId) return;

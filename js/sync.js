@@ -9,8 +9,9 @@ let fb = null; // { auth, fs, uid, mods:{...firestore funcs} }
 let groupId = null;
 let onRemoteChange = null;
 let toast = () => {};
-let unsubEvents = null, unsubCalendars = null, unsubTodos = null, unsubTags = null;
+let unsubEvents = null, unsubCalendars = null, unsubTodos = null, unsubTags = null, unsubMembers = null;
 let memberNames = {}; // uid -> 暱稱 快取
+let bumpTimer = null;
 
 const $ = id => document.getElementById(id);
 
@@ -61,7 +62,7 @@ export const sync = {
       memberNames = (await db.getMeta('memberNames')) || {};
       groupId = await db.getMeta('groupId');
       if (groupId) {
-        await this.pullAll();
+        // 不再先整包 pullAll:即時監聽的第一次快照就是完整資料,省一半讀取量
         this.subscribe();
         if ('Notification' in window && Notification.permission === 'granted') this.subscribePush();
       }
@@ -196,8 +197,7 @@ export const sync = {
       for (const t of tds) await this.pushTodo(t);
     }
 
-    await this.pullAll();
-    this.subscribe();
+    this.subscribe(); // 監聽的第一次快照會帶回完整雲端資料,不用再另外 pullAll
     this.renderStatus();
     if ('Notification' in window && Notification.permission === 'granted') this.subscribePush();
     if (onRemoteChange) onRemoteChange();
@@ -222,10 +222,15 @@ export const sync = {
         });
       }
       const json = sub.toJSON();
+      // 每次開 App 都會跑到這裡;訂閱沒變就不用重寫(也不用讓 Worker 的快取失效)
+      const savedKey = `${groupId}|${json.endpoint}`;
+      if (!verbose && (await db.getMeta('pushSubSaved')) === savedKey) return;
       const { doc, setDoc } = fb.m;
       await setDoc(doc(fb.fs, 'groups', groupId, 'pushSubscriptions', fb.uid), {
         endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth, updatedAt: Date.now(),
       });
+      await db.setMeta('pushSubSaved', savedKey);
+      this.bumpChange();
       if (verbose) toast('雲端推播訂閱成功 ✅');
     } catch (e) { say('推播訂閱失敗:' + (e.message || e)); }
   },
@@ -240,6 +245,19 @@ export const sync = {
   cloudActive() { return !!(fb && groupId); },
   getUid() { return fb ? fb.uid : null; },
   getMemberName(uid) { return memberNames[uid] || '家人'; },
+
+  // 在群組文件上記一個「最後變動時間」,推播 Worker 每 5 分鐘只看這個欄位,
+  // 有變才重讀全部行程,沒變就用快取,省下大量讀取額度。短時間連續變動(例如匯入)合併成一次寫入。
+  bumpChange() {
+    if (!fb || !groupId) return;
+    clearTimeout(bumpTimer);
+    bumpTimer = setTimeout(async () => {
+      try {
+        const { doc, updateDoc } = fb.m;
+        await updateDoc(doc(fb.fs, 'groups', groupId), { lastChangeMs: Date.now() });
+      } catch (e) { console.warn('更新群組變動時間失敗', e); }
+    }, 1500);
+  },
 
   // 有人新增/修改行程時立即通知群組裡的其他人(跟到期提醒是不同機制,不用等提醒時間)
   async notifyGroup(title, text) {
@@ -300,6 +318,7 @@ export const sync = {
         createdBy: ev.createdBy || fb.uid, attendees: ev.attendees || [],
         deleted: !!ev.deleted, updatedAtMs: ev.updatedAt,
       });
+      this.bumpChange();
     } catch (e) { console.warn('push event 失敗', e); }
   },
 
@@ -336,100 +355,107 @@ export const sync = {
     await deleteDoc(doc(fb.fs, 'groups', groupId, 'events', eventId, 'comments', commentId));
   },
 
-  // 從雲端拉全部資料,以 updatedAt 較新者為準
+  // ── 把雲端的一筆文件套用到本機(以 updatedAt 較新者為準),pullAll 和即時監聽共用 ──
+  async _applyCalendar(d) {
+    const rc = d.data();
+    const local = await db.get('calendars', d.id);
+    if (!local || rc.updatedAtMs > local.updatedAt) {
+      await db.put('calendars', {
+        id: d.id, name: rc.name, color: rc.color,
+        hidden: local ? local.hidden : false,
+        deleted: rc.deleted, updatedAt: rc.updatedAtMs,
+      });
+      return true;
+    }
+    return false;
+  },
+  async _applyEvent(d) {
+    const re = d.data();
+    const local = await db.get('events', d.id);
+    if (local && !(re.updatedAtMs > local.updatedAt)) return false;
+    const { doc, getDoc } = fb.m;
+    const photoIds = re.photoIds || [];
+    for (const pid of photoIds) {
+      if (await db.get('photos', pid)) continue;
+      try {
+        const pSnap = await getDoc(doc(fb.fs, 'groups', groupId, 'photos', pid));
+        if (pSnap.exists()) {
+          const pd = pSnap.data();
+          await db.put('photos', { id: pid, data: pd.data, name: pd.name || '', type: pd.type || '', synced: true, updatedAt: Date.now() });
+        }
+      } catch { /* 附件抓不到就略過 */ }
+    }
+    await db.put('events', {
+      id: d.id, calendarId: re.calendarId, title: re.title,
+      allDay: re.allDay, start: re.startAt, end: re.endAt,
+      repeat: re.repeat, repeatUntil: re.repeatUntil || null, exdates: re.exdates || [], interval: re.interval || null, byDay: re.byDay || null, reminder: re.reminder, reminder2: re.reminder2 ?? null, color: re.color || null, tagIds: re.tagIds || [], location: re.location || '', url: re.url || '', notes: re.notes,
+      photos: photoIds, createdBy: re.createdBy || null, attendees: re.attendees || [],
+      deleted: re.deleted, updatedAt: re.updatedAtMs,
+    });
+    return true;
+  },
+  async _applyTodo(d) {
+    const rt = d.data();
+    const local = await db.get('todos', d.id);
+    if (!local || rt.updatedAtMs > local.updatedAt) {
+      await db.put('todos', { id: d.id, text: rt.text, done: rt.done, deleted: rt.deleted, updatedAt: rt.updatedAtMs });
+      return true;
+    }
+    return false;
+  },
+  async _applyTag(d) {
+    const rt = d.data();
+    const local = await db.get('personTags', d.id);
+    if (!local || rt.updatedAtMs > local.updatedAt) {
+      await db.put('personTags', { id: d.id, name: rt.name, color: rt.color, deleted: rt.deleted, updatedAt: rt.updatedAtMs });
+      return true;
+    }
+    return false;
+  },
+  async _applyMembers(docs) {
+    for (const d of docs) memberNames[d.id] = d.data().name || '家人';
+    await db.setMeta('memberNames', memberNames);
+  },
+
+  // 從雲端拉全部資料(只用在加入群組、手動「立即同步」這種少見情況;平常靠下面的即時監聽,只讀有變動的那幾筆)
   async pullAll() {
     if (!fb || !groupId) return;
     try {
-      const { doc, getDoc, collection, getDocs } = fb.m;
-      const calSnap = await getDocs(collection(fb.fs, 'groups', groupId, 'calendars'));
-      for (const d of calSnap.docs) {
-        const rc = d.data();
-        const local = await db.get('calendars', d.id);
-        if (!local || rc.updatedAtMs > local.updatedAt) {
-          await db.put('calendars', {
-            id: d.id, name: rc.name, color: rc.color,
-            hidden: local ? local.hidden : false,
-            deleted: rc.deleted, updatedAt: rc.updatedAtMs,
-          });
-        }
-      }
-      const evSnap = await getDocs(collection(fb.fs, 'groups', groupId, 'events'));
-      for (const d of evSnap.docs) {
-        const re = d.data();
-        const local = await db.get('events', d.id);
-        if (!local || re.updatedAtMs > local.updatedAt) {
-          const photoIds = re.photoIds || [];
-          for (const pid of photoIds) {
-            const existing = await db.get('photos', pid);
-            if (existing) continue;
-            try {
-              const pSnap = await getDoc(doc(fb.fs, 'groups', groupId, 'photos', pid));
-              if (pSnap.exists()) {
-                const pd = pSnap.data();
-                await db.put('photos', { id: pid, data: pd.data, name: pd.name || '', type: pd.type || '', synced: true, updatedAt: Date.now() });
-              }
-            } catch { /* 附件抓不到就略過 */ }
-          }
-          await db.put('events', {
-            id: d.id, calendarId: re.calendarId, title: re.title,
-            allDay: re.allDay, start: re.startAt, end: re.endAt,
-            repeat: re.repeat, repeatUntil: re.repeatUntil || null, exdates: re.exdates || [], interval: re.interval || null, byDay: re.byDay || null, reminder: re.reminder, reminder2: re.reminder2 ?? null, color: re.color || null, tagIds: re.tagIds || [], location: re.location || '', url: re.url || '', notes: re.notes,
-            photos: photoIds, createdBy: re.createdBy || null, attendees: re.attendees || [],
-            deleted: re.deleted, updatedAt: re.updatedAtMs,
-          });
-        }
-      }
-
-      const memSnap = await getDocs(collection(fb.fs, 'groups', groupId, 'members'));
-      const names = {};
-      for (const d of memSnap.docs) names[d.id] = d.data().name || '家人';
-      memberNames = names;
-      await db.setMeta('memberNames', names);
-
-      const todoSnap = await getDocs(collection(fb.fs, 'groups', groupId, 'todos'));
-      for (const d of todoSnap.docs) {
-        const rt = d.data();
-        const local = await db.get('todos', d.id);
-        if (!local || rt.updatedAtMs > local.updatedAt) {
-          await db.put('todos', { id: d.id, text: rt.text, done: rt.done, deleted: rt.deleted, updatedAt: rt.updatedAtMs });
-        }
-      }
-
-      const tagSnap = await getDocs(collection(fb.fs, 'groups', groupId, 'personTags'));
-      for (const d of tagSnap.docs) {
-        const rt = d.data();
-        const local = await db.get('personTags', d.id);
-        if (!local || rt.updatedAtMs > local.updatedAt) {
-          await db.put('personTags', { id: d.id, name: rt.name, color: rt.color, deleted: rt.deleted, updatedAt: rt.updatedAtMs });
-        }
-      }
+      const { collection, getDocs } = fb.m;
+      const col = (name) => getDocs(collection(fb.fs, 'groups', groupId, name));
+      for (const d of (await col('calendars')).docs) await this._applyCalendar(d);
+      for (const d of (await col('events')).docs) await this._applyEvent(d);
+      memberNames = {};
+      await this._applyMembers((await col('members')).docs);
+      for (const d of (await col('todos')).docs) await this._applyTodo(d);
+      for (const d of (await col('personTags')).docs) await this._applyTag(d);
     } catch (e) { console.warn('pull 失敗', e); }
   },
 
-  // 即時訂閱:家人改了行程,自己手機馬上更新
+  // 即時訂閱:第一次會收到整包資料(取代開 App 時的 pullAll),之後只會收到「有變動的那幾筆」,
+  // 只套用那幾筆就好,不再整包重讀 — Firestore 讀取額度是照筆數算的,這是省額度的關鍵。
   subscribe() {
     if (!fb || !groupId || unsubEvents) return;
     const { collection, onSnapshot } = fb.m;
-    let first1 = true, first2 = true, first3 = true, first4 = true;
-    unsubEvents = onSnapshot(collection(fb.fs, 'groups', groupId, 'events'), async () => {
-      if (first1) { first1 = false; return; } // 略過初次訂閱時的既有快照(pullAll 已處理過)
-      await this.pullAll();
+    let pending = Promise.resolve();
+    const listen = (name, apply) => onSnapshot(collection(fb.fs, 'groups', groupId, name), (snap) => {
+      // 依序處理,避免同一筆資料的兩次變動交錯寫入
+      pending = pending.then(async () => {
+        let changed = false;
+        for (const ch of snap.docChanges()) {
+          if (ch.type === 'removed') continue;
+          if (await apply(ch.doc)) changed = true;
+        }
+        if (changed && onRemoteChange) onRemoteChange();
+      }).catch(e => console.warn('套用雲端變動失敗', e));
+    }, (e) => console.warn(`監聽 ${name} 失敗`, e));
+    unsubEvents = listen('events', (d) => this._applyEvent(d));
+    unsubCalendars = listen('calendars', (d) => this._applyCalendar(d));
+    unsubTodos = listen('todos', (d) => this._applyTodo(d));
+    unsubTags = listen('personTags', (d) => this._applyTag(d));
+    unsubMembers = onSnapshot(collection(fb.fs, 'groups', groupId, 'members'), async (snap) => {
+      await this._applyMembers(snap.docChanges().filter(ch => ch.type !== 'removed').map(ch => ch.doc));
       if (onRemoteChange) onRemoteChange();
-    });
-    unsubCalendars = onSnapshot(collection(fb.fs, 'groups', groupId, 'calendars'), async () => {
-      if (first2) { first2 = false; return; }
-      await this.pullAll();
-      if (onRemoteChange) onRemoteChange();
-    });
-    unsubTodos = onSnapshot(collection(fb.fs, 'groups', groupId, 'todos'), async () => {
-      if (first3) { first3 = false; return; }
-      await this.pullAll();
-      if (onRemoteChange) onRemoteChange();
-    });
-    unsubTags = onSnapshot(collection(fb.fs, 'groups', groupId, 'personTags'), async () => {
-      if (first4) { first4 = false; return; }
-      await this.pullAll();
-      if (onRemoteChange) onRemoteChange();
-    });
+    }, () => {});
   },
 };

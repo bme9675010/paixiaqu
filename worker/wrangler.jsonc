@@ -7,6 +7,9 @@
   "triggers": {
     "crons": ["*/5 * * * *"]
   },
+  "kv_namespaces": [
+    { "binding": "CACHE", "id": "376d58a6cfb0418b8356787a5ca2c5d0" }
+  ],
   "observability": {
     "enabled": true
   },

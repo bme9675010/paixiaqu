@@ -61,12 +61,36 @@ async function handleNotify(req, env) {
   return new Response(JSON.stringify({ sent }), { headers: { 'Content-Type': 'application/json' } });
 }
 
+// 群組行程/訂閱快取存在 KV:只有群組 lastChangeMs 變了(App 有人改資料)才重新向 Firestore 讀取,
+// 否則每 5 分鐘的檢查只花 1 次讀取(列出群組)。Firestore 免費額度是每天 5 萬次讀取,照筆數計。
+const CACHE_MAX_AGE_MS = 30 * 60 * 1000; // 保險:就算沒偵測到變動,30 分鐘也強制重讀一次(相容還沒更新的舊版 App)
+
+async function loadGroupData(env, fs, gid, lastChangeMs, nowMs) {
+  const key = `group:${gid}`;
+  if (env.CACHE) {
+    const cached = await env.CACHE.get(key, 'json').catch(() => null);
+    if (cached && cached.lastChangeMs === lastChangeMs && nowMs - cached.fetchedAt < CACHE_MAX_AGE_MS) {
+      return { ...cached, fromCache: true };
+    }
+  }
+  const [events, subs] = await Promise.all([
+    fs.listDocs(`groups/${gid}/events`),
+    fs.listDocs(`groups/${gid}/pushSubscriptions`),
+  ]);
+  // 只留算提醒需要的行程(沒刪除、有設提醒),縮小快取
+  const slim = events.filter(e => !e.data.deleted && (e.data.reminder != null || e.data.reminder2 != null));
+  const data = { lastChangeMs, fetchedAt: nowMs, events: slim, subs };
+  if (env.CACHE) await env.CACHE.put(key, JSON.stringify(data)).catch(e => console.warn('寫入快取失敗', e.message));
+  return { ...data, fromCache: false };
+}
+
 async function run(env) {
   const serviceAccount = JSON.parse(env.GCP_SERVICE_ACCOUNT_JSON);
   const fs = makeFirestoreClient(serviceAccount, env.FIREBASE_PROJECT_ID);
 
   const now = new Date();
-  const rangeStart = new Date(now.getTime() - WINDOW_MS - 24 * 3600000); // 提醒最長可設 1 天前,往前多抓一點確保涵蓋
+  const nowMs = now.getTime();
+  const rangeStart = new Date(nowMs - WINDOW_MS - 24 * 3600000); // 提醒最長可設 1 天前,往前多抓一點確保涵蓋
   const rangeEnd = now;
 
   const groups = await fs.listDocs('groups');
@@ -74,25 +98,14 @@ async function run(env) {
 
   for (const group of groups) {
     const gid = group.id;
-    let events, subs;
+    let events, subs, fromCache;
     try {
-      [events, subs] = await Promise.all([
-        fs.listDocs(`groups/${gid}/events`),
-        fs.listDocs(`groups/${gid}/pushSubscriptions`),
-      ]);
+      ({ events, subs, fromCache } = await loadGroupData(env, fs, gid, group.data.lastChangeMs || 0, nowMs));
     } catch (e) {
       console.error(`群組 ${gid} 讀取失敗`, e.message);
       continue;
     }
     if (!subs.length || !events.length) continue;
-
-    // 已發送紀錄(防止同一筆提醒因排程視窗重疊被重複推播兩次以上)
-    const notified = await fs.listDocs(`groups/${gid}/notifiedReminders`).catch(() => []);
-    const notifiedIds = new Set(notified.map(n => n.id));
-    const cutoff = now.getTime() - 48 * 3600000;
-    for (const n of notified) {
-      if ((n.data.sentAt || 0) < cutoff) await fs.deleteDoc(`groups/${gid}/notifiedReminders/${n.id}`).catch(() => {});
-    }
 
     const dueList = [];
     for (const { id: eventId, data: ev } of events) {
@@ -104,22 +117,30 @@ async function run(env) {
       for (const occ of occs) {
         for (const [slotName, mins] of slots) {
           const fireAt = occ.start.getTime() - mins * 60000;
-          if (fireAt <= now.getTime() && fireAt > now.getTime() - WINDOW_MS) {
-            const key = `${eventId}_${occ.start.getTime()}_${slotName}`;
-            if (notifiedIds.has(key)) continue; // 這筆提醒已經送過了,跳過
-            dueList.push({ ev, occ, key });
+          if (fireAt <= nowMs && fireAt > nowMs - WINDOW_MS) {
+            dueList.push({ ev, occ, key: `${eventId}_${occ.start.getTime()}_${slotName}` });
           }
         }
       }
     }
     if (!dueList.length) continue;
 
+    // 有到期提醒才去讀「已發送紀錄」(防止同一筆提醒因排程視窗重疊被重複推播)
+    const notified = await fs.listDocs(`groups/${gid}/notifiedReminders`).catch(() => []);
+    const notifiedIds = new Set(notified.map(n => n.id));
+    const cutoff = nowMs - 48 * 3600000;
+    for (const n of notified) {
+      if ((n.data.sentAt || 0) < cutoff) await fs.deleteDoc(`groups/${gid}/notifiedReminders/${n.id}`).catch(() => {});
+    }
+    const toSend = dueList.filter(d => !notifiedIds.has(d.key));
+    if (!toSend.length) continue;
+
+    let subsChanged = false;
     for (const sub of subs) {
       const pushSub = { endpoint: sub.data.endpoint, p256dh: sub.data.p256dh, auth: sub.data.auth };
-      for (const { ev, occ } of dueList) {
+      for (const { ev, occ } of toSend) {
         const timeStr = ev.allDay ? '今天' : timeFmt.format(occ.start);
         const payload = { title: '📅 ' + ev.title, body: timeStr };
-        console.log('準備發送 payload=', JSON.stringify(payload));
         try {
           await sendWebPush(
             pushSub,
@@ -132,15 +153,18 @@ async function run(env) {
           if (e.statusCode === 404 || e.statusCode === 410) {
             // 訂閱失效(裝置解除安裝/清除資料)→ 清掉,避免下次繼續打失敗
             await fs.deleteDoc(`groups/${gid}/pushSubscriptions/${sub.id}`).catch(() => {});
+            subsChanged = true;
+            break;
           }
         }
       }
     }
+    if (subsChanged && env.CACHE) await env.CACHE.delete(`group:${gid}`).catch(() => {});
 
     // 不論每個裝置發送成功與否,整批標記為已處理,避免視窗重疊或個別裝置失敗造成重試風暴
-    for (const { key } of dueList) {
-      await fs.putDoc(`groups/${gid}/notifiedReminders/${key}`, { sentAt: now.getTime() }).catch(() => {});
+    for (const { key } of toSend) {
+      await fs.putDoc(`groups/${gid}/notifiedReminders/${key}`, { sentAt: nowMs }).catch(() => {});
     }
-    console.log(`群組 ${gid}: ${dueList.length} 筆到期提醒 x ${subs.length} 個訂閱裝置`);
+    console.log(`群組 ${gid}: ${toSend.length} 筆到期提醒 x ${subs.length} 個訂閱裝置${fromCache ? '(快取)' : ''}`);
   }
 }

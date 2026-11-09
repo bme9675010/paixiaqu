@@ -14,7 +14,10 @@ service cloud.firestore {
       // 任何已登入(含匿名登入)使用者可讀取群組基本資料 / 用邀請碼查詢
       allow read: if request.auth != null;
       allow create: if request.auth != null;
-      allow update, delete: if false;
+      // 成員只能更新「最後變動時間」(給提醒 Worker 判斷要不要重讀資料,省 Firestore 讀取額度)
+      allow update: if isMember(groupId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastChangeMs']);
+      allow delete: if false;
 
       match /members/{uid} {
         allow read: if isMember(groupId);

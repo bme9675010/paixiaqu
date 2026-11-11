@@ -10,10 +10,22 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid));
     }
 
+    // 邀請碼 → 群組 對照:只能拿著邀請碼查(get),不能列出(list);只能新增、不能改/刪,
+    // 而且新增時邀請碼必須跟該群組文件上的邀請碼一致,避免有人搶先佔用或竄改
+    match /invites/{code} {
+      allow get: if request.auth != null;
+      allow list: if false;
+      allow create: if request.auth != null
+        && get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.inviteCode == code;
+      allow update, delete: if false;
+    }
+
     match /groups/{groupId} {
-      // 任何已登入(含匿名登入)使用者可讀取群組基本資料 / 用邀請碼查詢
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
+      // 只有成員能讀群組;不能列出全部群組(以前任何人都能列出所有群組+邀請碼,是安全漏洞)
+      allow get: if isMember(groupId);
+      allow list: if false;
+      allow create: if request.auth != null && request.resource.data.inviteCode is string
+        && request.resource.data.inviteCode.size() >= 6;
       // 成員只能更新「最後變動時間」(給提醒 Worker 判斷要不要重讀資料,省 Firestore 讀取額度)
       allow update: if isMember(groupId) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastChangeMs']);
@@ -21,7 +33,11 @@ service cloud.firestore {
 
       match /members/{uid} {
         allow read: if isMember(groupId);
-        allow create, update: if request.auth != null && request.auth.uid == uid;
+        // 加入群組必須附上正確邀請碼(規則直接比對群組文件上的邀請碼,不靠前端)
+        allow create: if request.auth != null && request.auth.uid == uid
+          && request.resource.data.inviteCode == get(/databases/$(database)/documents/groups/$(groupId)).data.inviteCode;
+        // 已經是成員的人可以改自己的資料(例如暱稱)
+        allow update: if request.auth != null && request.auth.uid == uid;
         allow delete: if false;
       }
 

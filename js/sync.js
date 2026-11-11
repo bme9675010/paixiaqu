@@ -129,16 +129,18 @@ export const sync = {
   async createGroup() {
     if (!fb) return;
     try {
-      const { doc, setDoc, collection, getDocs, query, where } = fb.m;
+      const { doc, setDoc, getDoc, collection } = fb.m;
+      // 邀請碼用密碼學亂數產生(避免被猜),並確認沒跟現有邀請碼撞號
+      const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
       let code;
-      // 隨機碼避免與現有群組撞號
       for (let i = 0; i < 5; i++) {
-        code = Math.random().toString(36).slice(2, 8).toUpperCase();
-        const snap = await getDocs(query(collection(fb.fs, 'groups'), where('inviteCode', '==', code)));
-        if (snap.empty) break;
+        code = Array.from(crypto.getRandomValues(new Uint32Array(6)), n => ALPHA[n % ALPHA.length]).join('');
+        if (!(await getDoc(doc(fb.fs, 'invites', code))).exists()) break;
       }
       const ref = doc(collection(fb.fs, 'groups'));
       await setDoc(ref, { inviteCode: code, name: '我的家庭', createdAt: Date.now() });
+      // 邀請碼 → 群組 的對照表:只能「拿著碼去查」,無法列出全部群組
+      await setDoc(doc(fb.fs, 'invites', code), { groupId: ref.id, createdAt: Date.now() });
       await this._joined(ref.id, code, false);
       toast('群組建立成功 🎉');
     } catch (e) { toast('建立失敗:' + e.message); }
@@ -147,11 +149,11 @@ export const sync = {
   async joinGroup(code) {
     if (!fb || !code) { toast('請輸入邀請碼'); return; }
     try {
-      const { collection, query, where, getDocs } = fb.m;
-      const snap = await getDocs(query(collection(fb.fs, 'groups'), where('inviteCode', '==', code.toUpperCase())));
-      if (snap.empty) throw new Error('找不到這個邀請碼');
-      const d = snap.docs[0];
-      await this._joined(d.id, d.data().inviteCode, true);
+      const { doc, getDoc } = fb.m;
+      code = code.toUpperCase();
+      const inv = await getDoc(doc(fb.fs, 'invites', code));
+      if (!inv.exists()) throw new Error('找不到這個邀請碼');
+      await this._joined(inv.data().groupId, code, true);
       toast('加入成功 🎉');
     } catch (e) { toast('加入失敗:' + e.message); }
   },
@@ -161,8 +163,9 @@ export const sync = {
     await db.setMeta('groupId', gid);
     await db.setMeta('groupCode', code);
     const { doc, setDoc } = fb.m;
+    // 安全規則會比對 inviteCode 跟群組的邀請碼,不對就不讓加入
     await setDoc(doc(fb.fs, 'groups', gid, 'members', fb.uid), {
-      name: (await db.getMeta('memberName')) || '家人', joinedAt: Date.now(),
+      name: (await db.getMeta('memberName')) || '家人', joinedAt: Date.now(), inviteCode: code,
     });
 
     if (isJoin) {

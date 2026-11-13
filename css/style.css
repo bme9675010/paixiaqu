@@ -541,3 +541,6 @@ input[type=text] { -webkit-user-select: text; user-select: text; }
   white-space: nowrap;
 }
 .toast.show { opacity: .95; }
+
+/* 讓 hidden 屬性一定生效(.form-row 等的 display:flex 原本會蓋掉它,導致不該出現的欄位一直顯示) */
+[hidden] { display: none !important; }

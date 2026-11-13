@@ -84,14 +84,26 @@ async function loadGroupData(env, fs, gid, lastChangeMs, nowMs) {
   return { ...data, fromCache: false };
 }
 
+// Worker 執行環境是 UTC,但重複規則(星期幾、整天、例外日期、重複結束日)要用台灣時間判斷。
+// 台灣沒有日光節約,所以把時間平移 +8 小時,用 UTC 當作台灣時間計算,算完再平移回來。
+const TPE_OFFSET = 8 * 3600000;
+function occurrencesInTaipei(ev, rangeStart, rangeEnd) {
+  const shifted = { ...ev, startAt: ev.startAt + TPE_OFFSET, endAt: ev.endAt + TPE_OFFSET };
+  return occurrencesInRange(shifted, new Date(rangeStart.getTime() + TPE_OFFSET), new Date(rangeEnd.getTime() + TPE_OFFSET))
+    .map(o => ({ start: new Date(o.start.getTime() - TPE_OFFSET), end: new Date(o.end.getTime() - TPE_OFFSET) }));
+}
+
 async function run(env) {
   const serviceAccount = JSON.parse(env.GCP_SERVICE_ACCOUNT_JSON);
   const fs = makeFirestoreClient(serviceAccount, env.FIREBASE_PROJECT_ID);
 
   const now = new Date();
   const nowMs = now.getTime();
-  const rangeStart = new Date(nowMs - WINDOW_MS - 24 * 3600000); // 提醒最長可設 1 天前,往前多抓一點確保涵蓋
-  const rangeEnd = now;
+  // 要找「提醒時間落在現在附近」的行程:提醒最早可設 1 週前 → 往後看 8 天;
+  // 整天行程可設「當天幾點」提醒(此時行程已開始)→ 往前看 1 天。
+  // (舊版把範圍設成「過去 24 小時~現在」,方向反了,導致只有「準時」提醒會發)
+  const rangeStart = new Date(nowMs - WINDOW_MS - 24 * 3600000);
+  const rangeEnd = new Date(nowMs + 8 * 24 * 3600000);
 
   const groups = await fs.listDocs('groups');
   console.log(`檢查 ${groups.length} 個群組`);
@@ -113,7 +125,7 @@ async function run(env) {
       const slots = [['reminder', ev.reminder], ['reminder2', ev.reminder2]]
         .filter(([, mins]) => mins !== null && mins !== undefined);
       if (!slots.length) continue;
-      const occs = occurrencesInRange(ev, rangeStart, rangeEnd);
+      const occs = occurrencesInTaipei(ev, rangeStart, rangeEnd);
       for (const occ of occs) {
         for (const [slotName, mins] of slots) {
           const fireAt = occ.start.getTime() - mins * 60000;

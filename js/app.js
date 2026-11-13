@@ -858,7 +858,7 @@ async function showDetail(id, occMs) {
 
   $('detailBody').innerHTML = `
     <div class="detail-title">${esc(ev.title)}<span class="detail-cal" style="background:${cal.color}">${esc(cal.name)}</span></div>
-    <div class="detail-time">${timeStr}${repeatStr ? ' · 🔁 ' + repeatStr : ''}${ev.reminder !== null && ev.reminder !== undefined && ev.reminder !== '' ? ' · 🔔' : ''}</div>
+    <div class="detail-time">${timeStr}${repeatStr ? ' · 🔁 ' + repeatStr : ''}${ev.reminder !== null && ev.reminder !== undefined && ev.reminder !== '' ? ' · 🔔 ' + reminderLabel(Number(ev.reminder), !!ev.allDay) : ''}</div>
     ${creatorHtml}
     ${locationHtml}
     ${urlHtml}
@@ -1019,9 +1019,11 @@ async function openEventForm(ev = null, preset = null, occMs = null, prefillData
     o.classList.toggle('sel', (base.byDay || []).includes(+o.dataset.wd));
   });
   updateRepeatRowsUI();
-  $('evReminder').value = (base.reminder === null || base.reminder === undefined) ? '' : String(base.reminder);
+  fillReminderSelect('evReminder', !!base.allDay);
+  fillReminderSelect('evReminder2', !!base.allDay);
+  setReminderValue('evReminder', base.reminder === '' ? null : base.reminder, !!base.allDay);
   const hasReminder2 = base.reminder2 !== null && base.reminder2 !== undefined;
-  $('evReminder2').value = hasReminder2 ? String(base.reminder2) : '';
+  setReminderValue('evReminder2', hasReminder2 ? base.reminder2 : null, !!base.allDay);
   $('reminder2Row').hidden = !hasReminder2;
   $('btnAddReminder2').hidden = hasReminder2;
   $('evLocation').value = base.location || '';
@@ -1046,6 +1048,44 @@ function toggleTimeInputs() {
   const allDay = $('evAllDay').checked;
   $('evStartTime').style.display = allDay ? 'none' : '';
   $('evEndTime').style.display = allDay ? 'none' : '';
+  // 整天 / 非整天的提醒選項不同;切換時盡量保留原本的選擇,沒有對應的就換成該模式的預設值
+  for (const id of ['evReminder', 'evReminder2']) {
+    const prev = $(id).value;
+    fillReminderSelect(id, allDay);
+    setReminderValue(id, prev === '' ? null : (reminderOpts(allDay).some(([v]) => String(v) === prev) ? Number(prev) : (allDay ? -540 : 10)), allDay);
+  }
+}
+
+// ── 提醒選項 ──
+// 數值 = 行程開始前幾分鐘。整天行程以「當天 00:00」為開始時間,所以負數代表當天幾點(-540 = 當天 09:00)
+const REMINDER_OPTS_TIMED = [[0, '準時'], [5, '5 分鐘前'], [10, '10 分鐘前'], [15, '15 分鐘前'], [30, '30 分鐘前'],
+  [60, '1 小時前'], [120, '2 小時前'], [180, '3 小時前'], [1440, '1 天前'], [2880, '2 天前'], [10080, '1 週前']];
+const REMINDER_OPTS_ALLDAY = [[-420, '當天 早上 7:00'], [-540, '當天 早上 9:00'], [240, '前一天 晚上 8:00'],
+  [900, '前一天 早上 9:00'], [2340, '2 天前 早上 9:00'], [9540, '1 週前 早上 9:00']];
+function reminderOpts(allDay) { return allDay ? REMINDER_OPTS_ALLDAY : REMINDER_OPTS_TIMED; }
+function reminderLabel(mins, allDay) {
+  const hit = reminderOpts(allDay).find(([v]) => v === mins);
+  if (hit) return hit[1];
+  if (allDay) { // 舊資料或其他數值:換算成「哪一天幾點」
+    const t = -mins, dayOff = Math.floor(t / 1440), m = t - dayOff * 1440;
+    const day = dayOff === 0 ? '當天' : dayOff === -1 ? '前一天' : `${-dayOff} 天前`;
+    return `${day} ${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  }
+  if (mins % 1440 === 0) return `${mins / 1440} 天前`;
+  if (mins % 60 === 0) return `${mins / 60} 小時前`;
+  return `${mins} 分鐘前`;
+}
+function fillReminderSelect(id, allDay) {
+  $(id).innerHTML = '<option value="">不提醒</option>' +
+    reminderOpts(allDay).map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+}
+function setReminderValue(id, mins, allDay) {
+  const sel = $(id);
+  if (mins === null || mins === undefined) { sel.value = ''; return; }
+  if (![...sel.options].some(o => o.value === String(mins))) {
+    sel.insertAdjacentHTML('beforeend', `<option value="${mins}">${reminderLabel(mins, allDay)}</option>`);
+  }
+  sel.value = String(mins);
 }
 
 const REPEAT_UNIT_LABEL = { daily: '天', weekly: '週', monthly: '月', yearly: '年' };
@@ -1675,7 +1715,7 @@ function checkReminders() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (sync.cloudPushActive()) return; // 雲端推播已經接管,避免本機再跳一次重複通知
   const now = Date.now();
-  const soon = occurrencesInRange(new Date(now - 60000), new Date(now + 26 * 3600000));
+  const soon = occurrencesInRange(new Date(now - 26 * 3600000), new Date(now + 8 * 24 * 3600000)); // 最長提醒 1 週前;整天行程可在當天幾點提醒(此時行程已開始)
   for (const o of soon) {
     for (const slot of ['reminder', 'reminder2']) {
       const mins = o.ev[slot];
